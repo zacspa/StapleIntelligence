@@ -15,6 +15,10 @@ struct ReceiptReviewView: View {
     @State private var merchantName: String
     @State private var purchaseDate: Date
     @State private var isSaving = false
+    @State private var showingValidation = false
+    @State private var validationResult: ReceiptValidationResult? = nil
+    @State private var editedForSave: ParsedReceipt? = nil
+    private let validator = ReceiptValidator()
 
     init(parsed: ParsedReceipt, onSave: @escaping (ParsedReceipt) -> Void, onCancel: @escaping () -> Void) {
         self.parsed = parsed
@@ -59,6 +63,22 @@ struct ReceiptReviewView: View {
             }
             .navigationTitle("Review Receipt")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(isPresented: $showingValidation) {
+                if let result = validationResult, let edited = editedForSave {
+                    ValidationReviewView(
+                        result: result,
+                        onSaveAnyway: {
+                            showingValidation = false
+                            isSaving = true
+                            onSave(edited)
+                        },
+                        onRescan: {
+                            showingValidation = false
+                            onCancel()
+                        }
+                    )
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
@@ -80,7 +100,6 @@ struct ReceiptReviewView: View {
     }
 
     private func save() {
-        isSaving = true
         let trimmedMerchant = merchantName.trimmingCharacters(in: .whitespaces)
         let edited = ParsedReceipt(
             rawOcrText: parsed.rawOcrText,
@@ -93,11 +112,15 @@ struct ReceiptReviewView: View {
             parseConfidence: parsed.parseConfidence,
             reconciliationStatus: parsed.reconciliationStatus
         )
-        // onSave is synchronous. ReceiptsView wraps handleSave in a Task, which captures
-        // `edited` by copying it into the Task's heap closure before any suspension.
-        // This gives the array buffer a proper strong reference — no @in_guaranteed borrow.
-        onSave(edited)
-        // isSaving stays true; spinner is visible until ReceiptsView sets parsedReceipt = nil.
+        let result = validator.validate(edited)
+        if result.requiresReview {
+            validationResult = result
+            editedForSave = edited
+            showingValidation = true
+        } else {
+            isSaving = true
+            onSave(edited)
+        }
     }
 }
 
