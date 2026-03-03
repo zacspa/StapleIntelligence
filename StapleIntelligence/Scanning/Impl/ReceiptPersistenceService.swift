@@ -32,17 +32,25 @@ struct ReceiptPersistenceService {
         let merchant = localMerchantName.flatMap { name -> Merchant? in
             try? findOrCreateMerchant(displayName: name)
         }
-        
+        let normalizedMerchantName = merchant?.normalizedName
+
         let lineItems: [LineItem] = localLineItems.map { item in
-            LineItem(
+            var resolvedCanonical = item.canonicalName
+            if let sku = item.sku, let normalized = normalizedMerchantName,
+               let product = try? findOrCreateMerchantProduct(
+                   normalizedMerchantName: normalized, sku: sku, canonicalName: item.canonicalName) {
+                resolvedCanonical = product.canonicalName
+            }
+            return LineItem(
                 rawName: item.rawName,
-                canonicalName: item.canonicalName,
+                canonicalName: resolvedCanonical,
                 quantity: item.quantity,
                 unit: item.unit,
                 unitPrice: item.unitPrice,
                 lineTotal: item.lineTotal,
                 isDiscount: item.isDiscount,
-                confidence: item.confidence
+                confidence: item.confidence,
+                sku: item.sku
             )
         }
 
@@ -100,6 +108,7 @@ struct ReceiptPersistenceService {
         for (i, item) in receipt.lineItems.enumerated() {
             var info = "  [\(i)] \(item.canonicalName) = \(item.lineTotal)"
             if item.rawName != item.canonicalName { info += "  raw=\"\(item.rawName)\"" }
+            if let sku = item.sku { info += "  sku=\(sku)" }
             if let qty = item.quantity, let unit = item.unit {
                 info += "  \(String(format: "%.2f", qty)) \(unit)"
                 if let up = item.unitPrice { info += " × \(up)/\(unit)" }
@@ -158,5 +167,24 @@ struct ReceiptPersistenceService {
         let merchant = Merchant(displayName: displayName, normalizedName: normalized)
         modelContext.insert(merchant)
         return merchant
+    }
+
+    /// @MainActor: dedup product by (normalizedMerchantName, sku); updates lastSeenAt on hit.
+    private func findOrCreateMerchantProduct(
+        normalizedMerchantName: String,
+        sku: String,
+        canonicalName: String
+    ) throws -> MerchantProduct {
+        var descriptor = FetchDescriptor<MerchantProduct>(
+            predicate: #Predicate { $0.normalizedMerchantName == normalizedMerchantName && $0.sku == sku }
+        )
+        descriptor.fetchLimit = 1
+        if let existing = try modelContext.fetch(descriptor).first {
+            existing.lastSeenAt = Date()
+            return existing
+        }
+        let product = MerchantProduct(normalizedMerchantName: normalizedMerchantName, sku: sku, canonicalName: canonicalName)
+        modelContext.insert(product)
+        return product
     }
 }

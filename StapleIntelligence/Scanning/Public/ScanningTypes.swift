@@ -19,6 +19,7 @@ struct ParsedLineItem {
     let isDiscount: Bool
     let confidence: Double
     let taxCode: String?
+    let sku: String?
 }
 
 struct ParsedReceipt: Identifiable {

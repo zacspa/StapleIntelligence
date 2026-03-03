@@ -42,6 +42,7 @@ struct ReceiptParser {
     private static let noiseTokenPattern    = /\b(FB|ND|FR|Ft|[ABDF])\b/
     private static let weightFragPattern    = /(?i)\s+\d+[\.,]\d+\s*(?:lb|oz|kg|1b|ib).*$/
     private static let skuPrefixPattern     = /^\d{3,9}\s+/
+    private static let skuCapturePattern    = /^(\d{3,9})\s+/
 
     // MARK: - Section bounds
 
@@ -98,6 +99,7 @@ struct ReceiptParser {
         for (i, item) in lineItems.enumerated() {
             var info = "  [\(i)] \(item.canonicalName) = \(item.lineTotal)"
             if item.rawName.uppercased() != item.canonicalName { info += "  raw=\"\(item.rawName)\"" }
+            if let sku = item.sku { info += "  sku=\(sku)" }
             if let qty = item.quantity, let unit = item.unit {
                 info += "  \(String(format: "%.2f", qty)) \(unit)"
                 if let up = item.unitPrice { info += " × \(up)/\(unit)" }
@@ -168,6 +170,11 @@ struct ReceiptParser {
             .filter { !$0.isEmpty }
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespaces)
+    }
+
+    static func extractSKU(from string: String) -> String? {
+        guard let m = try? skuCapturePattern.prefixMatch(in: string) else { return nil }
+        return String(m.1)
     }
 
     // MARK: - Phase implementations
@@ -299,7 +306,10 @@ struct ReceiptParser {
             }
         }
 
-        let footerStart = min((priceEnd ?? nameEnd) + 1, lines.count)
+        // When there's a price block, footer begins after it (+1 skips the last price line).
+        // When there's no price block (single-column or VISA-only), the SUBTOTAL line IS
+        // nameEnd — include it in the footer so extractSubtotal can find it.
+        let footerStart = min(priceEnd.map { $0 + 1 } ?? nameEnd, lines.count)
         ScanningLog.parse.debug("bounds: footerStart=\(footerStart, privacy: .public)")
         return SectionBounds(nameStart: nameStart, nameEnd: nameEnd,
                              priceStart: priceStart, priceEnd: priceEnd,
@@ -367,6 +377,7 @@ struct ReceiptParser {
             let line = section[idx]
             guard !line.isEmpty,
                   let match = try? Self.lineItemPattern.wholeMatch(in: line) else { idx += 1; continue }
+            let sku = Self.extractSKU(from: line)
             let rawName = String(match.1)
             let priceStr = normalize(String(match.2))
             let taxCode  = match.3.map(String.init)
@@ -389,7 +400,7 @@ struct ReceiptParser {
                 rawName: rawName, canonicalName: canonical, quantity: quantity, unit: unit,
                 unitPrice: unitPrice, lineTotal: price, isDiscount: isDiscount,
                 confidence: canonical.count < 3 ? 0.4 : (isDiscount ? 0.75 : 0.85),
-                taxCode: taxCode))
+                taxCode: taxCode, sku: sku))
             idx += 1
         }
         return items
@@ -482,12 +493,13 @@ struct ReceiptParser {
             let pl = prices[i]
             let isDiscount = (try? Self.discountPattern.firstMatch(in: nl.raw)) != nil || pl.price < 0
             let canonical  = Self.canonicalize(nl.raw)
+            let sku = Self.extractSKU(from: nl.raw)
             items.append(ParsedLineItem(
                 rawName: nl.raw, canonicalName: canonical,
                 quantity: nl.weightQty, unit: nl.weightUnit, unitPrice: nl.weightUnitPrice,
                 lineTotal: pl.price, isDiscount: isDiscount,
                 confidence: canonical.count < 3 ? 0.4 : (isDiscount ? 0.75 : 0.85),
-                taxCode: pl.taxCode))
+                taxCode: pl.taxCode, sku: sku))
         }
         return items
     }
@@ -568,12 +580,13 @@ struct ReceiptParser {
             let nl = names[i]; let pl = prices[i]
             let isDiscount = (try? Self.discountPattern.firstMatch(in: nl.raw)) != nil || pl.price < 0
             let canonical  = Self.canonicalize(nl.raw)
+            let sku = Self.extractSKU(from: nl.raw)
             items.append(ParsedLineItem(
                 rawName: nl.raw, canonicalName: canonical,
                 quantity: nl.weightQty, unit: nl.weightUnit, unitPrice: nl.weightUnitPrice,
                 lineTotal: pl.price, isDiscount: isDiscount,
                 confidence: canonical.count < 3 ? 0.4 : (isDiscount ? 0.75 : 0.85),
-                taxCode: pl.taxCode))
+                taxCode: pl.taxCode, sku: sku))
         }
         return items
     }

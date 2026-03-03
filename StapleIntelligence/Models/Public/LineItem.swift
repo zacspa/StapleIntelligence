@@ -30,6 +30,7 @@ final class LineItem {
 
     var isDiscount: Bool
     var confidence: Double
+    var sku: String?
 
     init(
         id: UUID = UUID(),
@@ -40,7 +41,8 @@ final class LineItem {
         unitPrice: Decimal? = nil,
         lineTotal: Decimal,
         isDiscount: Bool = false,
-        confidence: Double = 0
+        confidence: Double = 0,
+        sku: String? = nil
     ) {
         self.id = id
         self.rawName = rawName
@@ -51,5 +53,6 @@ final class LineItem {
         self.lineTotalStorage = "\(lineTotal)"
         self.isDiscount = isDiscount
         self.confidence = confidence
+        self.sku = sku
     }
 }
