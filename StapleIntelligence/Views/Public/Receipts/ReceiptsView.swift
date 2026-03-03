@@ -33,7 +33,9 @@ struct ReceiptsView: View {
                     )
                 } else {
                     List(receipts) { receipt in
-                        Text(receipt.purchaseDate?.formatted(date: .abbreviated, time: .omitted) ?? "Unknown date")
+                        NavigationLink(destination: ReceiptEditView(receipt: receipt)) {
+                            ReceiptRow(receipt: receipt)
+                        }
                     }
                 }
             }
@@ -171,6 +173,34 @@ struct ReceiptsView: View {
     }
 }
 
+// MARK: - Receipt list row
+
+private struct ReceiptRow: View {
+    let receipt: Receipt
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(receipt.merchant?.displayName ?? "Unknown Merchant")
+                    .font(.body)
+                Text(receipt.purchaseDate?.formatted(date: .abbreviated, time: .omitted) ?? "Unknown date")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                if let total = receipt.total {
+                    Text(total, format: .currency(code: "USD"))
+                        .monospacedDigit()
+                }
+                Text("\(receipt.lineItems.count) items")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 // MARK: - Error helper
 
 struct IdentifiableError: Identifiable {
@@ -180,5 +210,5 @@ struct IdentifiableError: Identifiable {
 
 #Preview {
     ReceiptsView()
-        .modelContainer(for: [Receipt.self, LineItem.self, Merchant.self], inMemory: true)
+        .modelContainer(for: [Receipt.self, LineItem.self, Merchant.self, MerchantProduct.self], inMemory: true)
 }
