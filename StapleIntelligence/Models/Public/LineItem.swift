@@ -11,7 +11,6 @@ import SwiftData
 @Model
 final class LineItem {
     var id: UUID
-    var receipt: Receipt?
     var rawName: String
     var canonicalName: String
     var quantity: Double?
@@ -34,7 +33,6 @@ final class LineItem {
 
     init(
         id: UUID = UUID(),
-        receipt: Receipt? = nil,
         rawName: String,
         canonicalName: String,
         quantity: Double? = nil,
@@ -45,7 +43,6 @@ final class LineItem {
         confidence: Double = 0
     ) {
         self.id = id
-        self.receipt = receipt
         self.rawName = rawName
         self.canonicalName = canonicalName
         self.quantity = quantity

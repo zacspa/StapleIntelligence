@@ -45,7 +45,6 @@ final class Receipt {
 
     var createdAt: Date
 
-    @Relationship(deleteRule: .cascade, inverse: \LineItem.receipt)
     var lineItems: [LineItem] = []
 
     init(
@@ -53,6 +52,7 @@ final class Receipt {
         merchant: Merchant? = nil,
         purchaseDate: Date? = nil,
         currency: String = "USD",
+        lineItems: [LineItem] = [],
         subtotal: Decimal? = nil,
         tax: Decimal? = nil,
         total: Decimal? = nil,
@@ -66,6 +66,7 @@ final class Receipt {
         self.merchant = merchant
         self.purchaseDate = purchaseDate
         self.currency = currency
+        self.lineItems = lineItems
         self.subtotalStorage = subtotal.map { "\($0)" }
         self.taxStorage = tax.map { "\($0)" }
         self.totalStorage = total.map { "\($0)" }
