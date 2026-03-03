@@ -15,6 +15,7 @@ struct StapleIntelligenceApp: App {
             Receipt.self,
             LineItem.self,
             Merchant.self,
+            MerchantProduct.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
