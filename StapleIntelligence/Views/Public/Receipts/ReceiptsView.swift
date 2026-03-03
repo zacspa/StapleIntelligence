@@ -19,6 +19,7 @@ struct ReceiptsView: View {
     @State private var parsedReceipt: ParsedReceipt? = nil
     @State private var scanError: IdentifiableError? = nil
     @State private var isProcessing = false
+    @State private var pipelineTask: Task<Void, Never>? = nil
 
     private let ocrService = ReceiptOCRService()
     private let parser = ReceiptParser()
@@ -35,14 +36,12 @@ struct ReceiptsView: View {
                 } else {
                     let _ = ScanningLog.edit.debug("ReceiptsView body — \(receipts.count, privacy: .public) receipts @ \(ts(), privacy: .public)")
                     List(receipts) { receipt in
-                        NavigationLink(value: receipt.id) {
+                        NavigationLink(value: receipt) {
                             ReceiptRow(receipt: receipt)
                         }
                     }
-                    .navigationDestination(for: UUID.self) { id in
-                        if let receipt = receipts.first(where: { $0.id == id }) {
-                            ReceiptEditView(receipt: receipt)
-                        }
+                    .navigationDestination(for: Receipt.self) { receipt in
+                        ReceiptEditView(receipt: receipt)
                     }
                 }
             }
@@ -75,9 +74,12 @@ struct ReceiptsView: View {
                 onScan: { images in
                     isShowingScanner = false
                     scannedImages = images
-                    Task { await runPipeline(images: images) }
+                    pipelineTask?.cancel()
+                    pipelineTask = Task { await runPipeline(images: images) }
                 },
                 onCancel: {
+                    pipelineTask?.cancel()
+                    pipelineTask = nil
                     isShowingScanner = false
                 }
             )

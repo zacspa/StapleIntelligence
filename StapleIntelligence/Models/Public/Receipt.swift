@@ -45,6 +45,7 @@ final class Receipt {
 
     var createdAt: Date
 
+    @Relationship(deleteRule: .cascade)
     var lineItems: [LineItem] = []
 
     init(
