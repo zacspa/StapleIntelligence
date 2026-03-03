@@ -16,6 +16,7 @@ enum ScanningLog {
     static let parse     = Logger(subsystem: subsystem, category: "parse")
     static let dbSave    = Logger(subsystem: subsystem, category: "db_save")
     static let imgSave   = Logger(subsystem: subsystem, category: "image_persist")
+    static let edit      = Logger(subsystem: subsystem, category: "edit")
 }
 
 // MARK: - Transaction

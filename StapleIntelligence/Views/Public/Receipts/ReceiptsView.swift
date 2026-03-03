@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import OSLog
 
 struct ReceiptsView: View {
     @Environment(\.modelContext) private var modelContext
@@ -18,6 +19,7 @@ struct ReceiptsView: View {
     @State private var parsedReceipt: ParsedReceipt? = nil
     @State private var scanError: IdentifiableError? = nil
     @State private var isProcessing = false
+    @State private var pipelineTask: Task<Void, Never>? = nil
 
     private let ocrService = ReceiptOCRService()
     private let parser = ReceiptParser()
@@ -32,10 +34,14 @@ struct ReceiptsView: View {
                         description: Text("Tap + to scan your first receipt.")
                     )
                 } else {
+                    let _ = ScanningLog.edit.debug("ReceiptsView body — \(receipts.count, privacy: .public) receipts @ \(ts(), privacy: .public)")
                     List(receipts) { receipt in
-                        NavigationLink(destination: ReceiptEditView(receipt: receipt)) {
+                        NavigationLink(value: receipt) {
                             ReceiptRow(receipt: receipt)
                         }
+                    }
+                    .navigationDestination(for: Receipt.self) { receipt in
+                        ReceiptEditView(receipt: receipt)
                     }
                 }
             }
@@ -68,9 +74,12 @@ struct ReceiptsView: View {
                 onScan: { images in
                     isShowingScanner = false
                     scannedImages = images
-                    Task { await runPipeline(images: images) }
+                    pipelineTask?.cancel()
+                    pipelineTask = Task { await runPipeline(images: images) }
                 },
                 onCancel: {
+                    pipelineTask?.cancel()
+                    pipelineTask = nil
                     isShowingScanner = false
                 }
             )
@@ -111,7 +120,8 @@ struct ReceiptsView: View {
             tx.endOCR(lineCount: ocrLines, avgConfidence: avgConf, durationMs: ms(since: ocrStart))
 
             let parseStart = Date()
-            let parsed = parser.parse(rawText)
+            let localParser = parser
+            let parsed = await Task.detached(priority: .userInitiated) { localParser.parse(rawText) }.value
             tx.endParse(
                 itemCount: parsed.lineItems.count,
                 parseConfidence: parsed.parseConfidence,
@@ -170,6 +180,13 @@ struct ReceiptsView: View {
 
     private func ms(since start: Date) -> Int {
         Int(Date().timeIntervalSince(start) * 1000)
+    }
+
+    private func ts() -> String {
+        let d = Date()
+        let ms = Int(d.timeIntervalSince1970 * 1000) % 1000
+        let c = Calendar.current.dateComponents([.hour, .minute, .second], from: d)
+        return String(format: "%02d:%02d:%02d.%03d", c.hour ?? 0, c.minute ?? 0, c.second ?? 0, ms)
     }
 }
 
