@@ -58,7 +58,8 @@ struct ReceiptParser {
 
     // MARK: - Public API
 
-    func parse(_ rawText: String) -> ParsedReceipt {
+    /// Pure computation — nonisolated so it can be dispatched off the main actor.
+    nonisolated func parse(_ rawText: String) -> ParsedReceipt {
         #if DEBUG
         var dbg = "=== parse \(Date()) ===\n"
         func d(_ s: String) { dbg += s + "\n"; ScanningLog.parse.debug("\(s, privacy: .public)") }
@@ -148,7 +149,7 @@ struct ReceiptParser {
     }
 
     #if DEBUG
-    private func flushDebugLog(_ content: String) {
+    private nonisolated func flushDebugLog(_ content: String) {
         guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         let url = docs.appendingPathComponent("parse_debug.log")
         if let handle = try? FileHandle(forWritingTo: url) {
@@ -161,7 +162,7 @@ struct ReceiptParser {
     }
     #endif
 
-    static func canonicalize(_ name: String) -> String {
+    nonisolated static func canonicalize(_ name: String) -> String {
         var result = name.uppercased()
         result = result.replacing(skuPrefixPattern, with: "")
         result = result.replacing(noiseTokenPattern, with: "")
@@ -172,14 +173,14 @@ struct ReceiptParser {
             .trimmingCharacters(in: .whitespaces)
     }
 
-    static func extractSKU(from string: String) -> String? {
+    nonisolated static func extractSKU(from string: String) -> String? {
         guard let m = try? skuCapturePattern.prefixMatch(in: string) else { return nil }
         return String(m.1)
     }
 
     // MARK: - Phase implementations
 
-    private func extractMerchant(from lines: [String]) -> String? {
+    private nonisolated func extractMerchant(from lines: [String]) -> String? {
         for line in lines.prefix(5) {
             guard !line.isEmpty else { continue }
             guard (try? Self.merchantPattern.wholeMatch(in: line)) != nil else { continue }
@@ -189,7 +190,7 @@ struct ReceiptParser {
         return nil
     }
 
-    private func extractDate(from lines: [String]) -> (Date?, Int?) {
+    private nonisolated func extractDate(from lines: [String]) -> (Date?, Int?) {
         var visaLineIndex: Int? = nil
         var allMatches: [(Date, Int)] = []
         for (i, line) in lines.enumerated() {
@@ -206,7 +207,7 @@ struct ReceiptParser {
         return (allMatches.first?.0, visaLineIndex)
     }
 
-    private func makeDate(month: String, day: String, year: String) -> Date? {
+    private nonisolated func makeDate(month: String, day: String, year: String) -> Date? {
         guard let m = Int(month), let d = Int(day), var y = Int(year) else { return nil }
         if y < 100 { y += y < 50 ? 2000 : 1900 }
         var comps = DateComponents()
@@ -216,7 +217,7 @@ struct ReceiptParser {
 
     // MARK: - Section detection
 
-    private func findSectionBounds(in lines: [String]) -> SectionBounds {
+    private nonisolated func findSectionBounds(in lines: [String]) -> SectionBounds {
         var nameStart = 0
         var nameEnd = lines.count
         var priceStart: Int? = nil
@@ -317,7 +318,7 @@ struct ReceiptParser {
     }
 
     /// Returns true for lines that clearly belong to the receipt footer, not the price block.
-    private func isFooterMarker(_ line: String) -> Bool {
+    private nonisolated func isFooterMarker(_ line: String) -> Bool {
         let upper = line.trimmingCharacters(in: .whitespaces).uppercased()
         if upper == "SUBTOTAL" || upper == "TOTAL" || upper.contains("AMOUNT DUE") { return true }
         if (try? Self.subtotalInlinePattern.firstMatch(in: line)) != nil { return true }
@@ -328,7 +329,7 @@ struct ReceiptParser {
     }
 
     /// Tries to parse a price from a line. Returns (price, taxCode?) or nil.
-    private func extractPrice(from line: String) -> (price: Decimal, taxCode: String?)? {
+    private nonisolated func extractPrice(from line: String) -> (price: Decimal, taxCode: String?)? {
         // Price with ASCII tax code: "2.69 FB", "0.56 Fb" (case-insensitive)
         if let pm = try? Self.priceWithCodePattern.wholeMatch(in: line),
            let price = Decimal(string: normalize(String(pm.1)), locale: Locale(identifier: "en_US_POSIX")) {
@@ -352,7 +353,7 @@ struct ReceiptParser {
 
     // MARK: - Item extraction
 
-    private func extractItems(from lines: [String], bounds: SectionBounds, log: (String) -> Void = { _ in }) -> [ParsedLineItem] {
+    private nonisolated func extractItems(from lines: [String], bounds: SectionBounds, log: (String) -> Void = { _ in }) -> [ParsedLineItem] {
         if bounds.isSplitColumn {
             let items = extractSplitColumnItems(from: lines, bounds: bounds, log: log)
             if items.count >= 9 { return items }
@@ -368,7 +369,7 @@ struct ReceiptParser {
     }
 
     /// Single-column format: each line has SKU? + name + price + taxcode?
-    private func extractInlineItems(from lines: [String], start: Int, end: Int) -> [ParsedLineItem] {
+    private nonisolated func extractInlineItems(from lines: [String], start: Int, end: Int) -> [ParsedLineItem] {
         guard start < end else { return [] }
         let section = Array(lines[start..<end])
         var items: [ParsedLineItem] = []
@@ -407,7 +408,7 @@ struct ReceiptParser {
     }
 
     /// Split-column format: name block (nameStart..<nameEnd) zipped with price block (priceStart...priceEnd)
-    private func extractSplitColumnItems(from lines: [String], bounds: SectionBounds, log: (String) -> Void = { _ in }) -> [ParsedLineItem] {
+    private nonisolated func extractSplitColumnItems(from lines: [String], bounds: SectionBounds, log: (String) -> Void = { _ in }) -> [ParsedLineItem] {
         guard let priceStart = bounds.priceStart, let priceEnd = bounds.priceEnd else { return [] }
 
         // Collect name entries, attaching weight sub-lines to the preceding name
@@ -506,7 +507,7 @@ struct ReceiptParser {
 
     /// Mixed-column format: OCR interleaved names and prices in the same block.
     /// Scans [start, end) collecting names and prices independently, then zips by index.
-    private func extractMixedColumnItems(from lines: [String], start: Int, end: Int, log: (String) -> Void = { _ in }) -> [ParsedLineItem] {
+    private nonisolated func extractMixedColumnItems(from lines: [String], start: Int, end: Int, log: (String) -> Void = { _ in }) -> [ParsedLineItem] {
         struct NameEntry { var raw: String; var weightQty: Double?; var weightUnit: String?; var weightUnitPrice: Decimal? }
         struct PriceEntry { var price: Decimal; var taxCode: String? }
         var names: [NameEntry] = []
@@ -593,7 +594,7 @@ struct ReceiptParser {
 
     // MARK: - Footer extraction
 
-    private func extractSubtotal(from footerLines: [String]) -> Decimal? {
+    private nonisolated func extractSubtotal(from footerLines: [String]) -> Decimal? {
         let text = footerLines.joined(separator: "\n")
         // Inline: "SUBTOTAL 164.28"
         if let m = try? Self.subtotalInlinePattern.firstMatch(in: text) {
@@ -614,7 +615,7 @@ struct ReceiptParser {
         return nil
     }
 
-    private func extractTotal(from footerLines: [String]) -> Decimal? {
+    private nonisolated func extractTotal(from footerLines: [String]) -> Decimal? {
         let text = footerLines.joined(separator: "\n")
         // "TOTAL 171.17" or "TOTAL $171.17"
         if let m = try? Self.totalPattern.firstMatch(in: text) {
@@ -627,7 +628,7 @@ struct ReceiptParser {
         return nil
     }
 
-    private func extractTax(from text: String) -> Decimal? {
+    private nonisolated func extractTax(from text: String) -> Decimal? {
         var total = Decimal.zero
         var found = false
         var searchStart = text.startIndex
@@ -650,12 +651,12 @@ struct ReceiptParser {
     // MARK: - Helpers
 
     /// Normalize OCR artifacts: comma decimal separator → period
-    private func normalize(_ s: String) -> String {
+    private nonisolated func normalize(_ s: String) -> String {
         s.replacingOccurrences(of: ",", with: ".")
     }
 
     /// Normalize OCR unit strings: "1b" and "ib" are common OCR misreads of "lb"
-    private func normalizeUnit(_ raw: String) -> String {
+    private nonisolated func normalizeUnit(_ raw: String) -> String {
         switch raw.lowercased() {
         case "1b", "ib", "lb": return "lb"
         case "oz": return "oz"
@@ -664,13 +665,13 @@ struct ReceiptParser {
         }
     }
 
-    private func reconcile(items: [ParsedLineItem], subtotal: Decimal?) -> ReconciliationStatus {
+    private nonisolated func reconcile(items: [ParsedLineItem], subtotal: Decimal?) -> ReconciliationStatus {
         guard let subtotal else { return .unverified }
         let itemSum = items.reduce(Decimal.zero) { $0 + $1.lineTotal }
         return abs(itemSum - subtotal) <= Decimal(string: "0.02")! ? .reconciled : .discrepancy
     }
 
-    private func computeConfidence(
+    private nonisolated func computeConfidence(
         hasMerchant: Bool, hasDate: Bool, itemCount: Int,
         avgItemConfidence: Double, hasTotal: Bool, reconciliation: ReconciliationStatus
     ) -> Double {

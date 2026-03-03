@@ -33,7 +33,8 @@ struct ReceiptsView: View {
                     )
                 } else {
                     List(receipts) { receipt in
-                        NavigationLink(destination: ReceiptEditView(receipt: receipt)) {
+                        print("rendering receipts")
+                        return NavigationLink(destination: ReceiptEditView(receipt: receipt)) {
                             ReceiptRow(receipt: receipt)
                         }
                     }
@@ -111,7 +112,8 @@ struct ReceiptsView: View {
             tx.endOCR(lineCount: ocrLines, avgConfidence: avgConf, durationMs: ms(since: ocrStart))
 
             let parseStart = Date()
-            let parsed = parser.parse(rawText)
+            let localParser = parser
+            let parsed = await Task.detached(priority: .userInitiated) { localParser.parse(rawText) }.value
             tx.endParse(
                 itemCount: parsed.lineItems.count,
                 parseConfidence: parsed.parseConfidence,

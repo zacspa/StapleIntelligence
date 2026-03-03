@@ -34,12 +34,35 @@ struct ReceiptPersistenceService {
         }
         let normalizedMerchantName = merchant?.normalizedName
 
+        // Batch-fetch all existing MerchantProducts for this merchant in one query,
+        // then resolve/insert from a dictionary — avoids N per-item SQLite queries.
+        var productsBySku: [String: MerchantProduct] = [:]
+        if let normalized = normalizedMerchantName {
+            let skusInReceipt = Set(localLineItems.compactMap(\.sku))
+            if !skusInReceipt.isEmpty {
+                var desc = FetchDescriptor<MerchantProduct>(
+                    predicate: #Predicate { $0.normalizedMerchantName == normalized }
+                )
+                if let existing = try? modelContext.fetch(desc) {
+                    for p in existing where skusInReceipt.contains(p.sku) {
+                        p.lastSeenAt = Date()
+                        productsBySku[p.sku] = p
+                    }
+                }
+            }
+        }
+
         let lineItems: [LineItem] = localLineItems.map { item in
             var resolvedCanonical = item.canonicalName
-            if let sku = item.sku, let normalized = normalizedMerchantName,
-               let product = try? findOrCreateMerchantProduct(
-                   normalizedMerchantName: normalized, sku: sku, canonicalName: item.canonicalName) {
-                resolvedCanonical = product.canonicalName
+            if let sku = item.sku {
+                if let existing = productsBySku[sku] {
+                    resolvedCanonical = existing.canonicalName
+                } else if let normalized = normalizedMerchantName {
+                    let product = MerchantProduct(
+                        normalizedMerchantName: normalized, sku: sku, canonicalName: item.canonicalName)
+                    modelContext.insert(product)
+                    productsBySku[sku] = product  // prevent duplicates within this receipt
+                }
             }
             return LineItem(
                 rawName: item.rawName,
@@ -169,22 +192,4 @@ struct ReceiptPersistenceService {
         return merchant
     }
 
-    /// @MainActor: dedup product by (normalizedMerchantName, sku); updates lastSeenAt on hit.
-    private func findOrCreateMerchantProduct(
-        normalizedMerchantName: String,
-        sku: String,
-        canonicalName: String
-    ) throws -> MerchantProduct {
-        var descriptor = FetchDescriptor<MerchantProduct>(
-            predicate: #Predicate { $0.normalizedMerchantName == normalizedMerchantName && $0.sku == sku }
-        )
-        descriptor.fetchLimit = 1
-        if let existing = try modelContext.fetch(descriptor).first {
-            existing.lastSeenAt = Date()
-            return existing
-        }
-        let product = MerchantProduct(normalizedMerchantName: normalizedMerchantName, sku: sku, canonicalName: canonicalName)
-        modelContext.insert(product)
-        return product
-    }
 }
