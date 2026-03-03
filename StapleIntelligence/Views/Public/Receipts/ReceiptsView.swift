@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import OSLog
 
 struct ReceiptsView: View {
     @Environment(\.modelContext) private var modelContext
@@ -32,10 +33,15 @@ struct ReceiptsView: View {
                         description: Text("Tap + to scan your first receipt.")
                     )
                 } else {
+                    let _ = ScanningLog.edit.debug("ReceiptsView body — \(receipts.count, privacy: .public) receipts @ \(ts(), privacy: .public)")
                     List(receipts) { receipt in
-                        print("rendering receipts")
-                        return NavigationLink(destination: ReceiptEditView(receipt: receipt)) {
+                        NavigationLink(value: receipt.id) {
                             ReceiptRow(receipt: receipt)
+                        }
+                    }
+                    .navigationDestination(for: UUID.self) { id in
+                        if let receipt = receipts.first(where: { $0.id == id }) {
+                            ReceiptEditView(receipt: receipt)
                         }
                     }
                 }
@@ -172,6 +178,13 @@ struct ReceiptsView: View {
 
     private func ms(since start: Date) -> Int {
         Int(Date().timeIntervalSince(start) * 1000)
+    }
+
+    private func ts() -> String {
+        let d = Date()
+        let ms = Int(d.timeIntervalSince1970 * 1000) % 1000
+        let c = Calendar.current.dateComponents([.hour, .minute, .second], from: d)
+        return String(format: "%02d:%02d:%02d.%03d", c.hour ?? 0, c.minute ?? 0, c.second ?? 0, ms)
     }
 }
 

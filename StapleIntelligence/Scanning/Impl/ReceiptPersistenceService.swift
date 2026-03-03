@@ -40,7 +40,7 @@ struct ReceiptPersistenceService {
         if let normalized = normalizedMerchantName {
             let skusInReceipt = Set(localLineItems.compactMap(\.sku))
             if !skusInReceipt.isEmpty {
-                var desc = FetchDescriptor<MerchantProduct>(
+                let desc = FetchDescriptor<MerchantProduct>(
                     predicate: #Predicate { $0.normalizedMerchantName == normalized }
                 )
                 if let existing = try? modelContext.fetch(desc) {
