@@ -6,6 +6,15 @@
 //
 
 import Foundation
+import CoreGraphics
+
+// MARK: - OCR line type
+
+struct OCRLine: Sendable {
+    let text: String
+    let confidence: Double
+    let boundingBox: CGRect?  // nil for pages > 0 (multi-page; see OCR service)
+}
 
 // MARK: - Transient parsed value types
 
@@ -20,6 +29,7 @@ struct ParsedLineItem {
     let confidence: Double
     let taxCode: String?
     let sku: String?
+    let boundingBox: CGRect?  // Vision-normalized bottom-left origin; nil if unavailable
 }
 
 struct ParsedReceipt: Identifiable {

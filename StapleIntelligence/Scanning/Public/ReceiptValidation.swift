@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreGraphics
 
 // MARK: - Severity
 
@@ -47,6 +48,13 @@ enum ValidationIssueKind {
 struct ReceiptValidationIssue {
     let kind: ValidationIssueKind
     let severity: ValidationSeverity
+    let associatedBoundingBox: CGRect?  // set by validator; nil for receipt-level issues
+
+    init(kind: ValidationIssueKind, severity: ValidationSeverity, associatedBoundingBox: CGRect? = nil) {
+        self.kind = kind
+        self.severity = severity
+        self.associatedBoundingBox = associatedBoundingBox
+    }
 
     var title: String {
         switch kind {

@@ -6,15 +6,19 @@
 //
 
 import SwiftUI
+import UIKit
 
 // MARK: - Root view
 
 struct ValidationReviewView: View {
     let result: ReceiptValidationResult
+    let parsed: ParsedReceipt
+    let images: [UIImage]
     var onSaveAnyway: () -> Void
     var onRescan: () -> Void
 
     @State private var currentIndex = 0
+    @State private var cropCache: [Int: UIImage] = [:]
 
     private var sorted: [ReceiptValidationIssue] { result.sortedIssues }
     private var total: Int { sorted.count }
@@ -31,7 +35,10 @@ struct ValidationReviewView: View {
                     .foregroundStyle(.secondary)
                     .padding(.top, 4)
 
-                IssueCardView(issue: sorted[currentIndex]) {
+                IssueCardView(
+                    issue: sorted[currentIndex],
+                    cropImage: cropCache[currentIndex]
+                ) {
                     withAnimation { currentIndex += 1 }
                 }
                 .padding()
@@ -69,6 +76,33 @@ struct ValidationReviewView: View {
                 .hidden() // Replaced by custom back button on issue cards
             }
         }
+        .task {
+            for (i, issue) in result.sortedIssues.enumerated() {
+                guard cropCache[i] == nil else { continue }
+                if let box = issue.associatedBoundingBox, let image = images.first {
+                    cropCache[i] = crop(box, from: image, xPad: 0.02, yPad: 0.012)
+                }
+            }
+        }
+    }
+
+    // MARK: - Crop helper
+
+    private func crop(_ box: CGRect, from image: UIImage, xPad: CGFloat, yPad: CGFloat) -> UIImage? {
+        // Vision uses bottom-left origin; CGImage uses top-left origin.
+        guard let cgImage = image.cgImage else { return nil }
+        let w = CGFloat(cgImage.width), h = CGFloat(cgImage.height)
+        let padded = box
+            .insetBy(dx: -xPad, dy: -yPad)            // negative inset = expand
+            .intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+        let rect = CGRect(
+            x:      padded.minX * w,
+            y:      (1 - padded.maxY) * h,            // flip Y: Vision bottom-left → CGImage top-left
+            width:  padded.width * w,
+            height: padded.height * h
+        )
+        guard let cropped = cgImage.cropping(to: rect) else { return nil }
+        return UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
     }
 }
 
@@ -102,6 +136,7 @@ private struct ProgressBar: View {
 
 private struct IssueCardView: View {
     let issue: ReceiptValidationIssue
+    let cropImage: UIImage?
     var onNext: () -> Void
 
     private var iconColor: Color {
@@ -119,6 +154,15 @@ private struct IssueCardView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(iconColor)
                 .padding(.top, 8)
+
+            if let crop = cropImage {
+                Image(uiImage: crop)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: 60)
+                    .background(Color(.secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
 
             VStack(spacing: 8) {
                 Text(issue.title)

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreGraphics
 import OSLog
 
 struct ReceiptParser {
@@ -58,7 +59,10 @@ struct ReceiptParser {
 
     // MARK: - Public API
 
-    func parse(_ rawText: String) -> ParsedReceipt {
+    func parse(_ ocrLines: [OCRLine]) -> ParsedReceipt {
+        let rawText = ocrLines.map(\.text).joined(separator: "\n")
+        let lines = ocrLines.map { $0.text.trimmingCharacters(in: .whitespaces) }
+
         #if DEBUG
         var dbg = "=== parse \(Date()) ===\n"
         func d(_ s: String) { dbg += s + "\n"; ScanningLog.parse.debug("\(s, privacy: .public)") }
@@ -74,9 +78,6 @@ struct ReceiptParser {
                                  lineItems: [], subtotal: nil, tax: nil, total: nil,
                                  parseConfidence: 0, reconciliationStatus: .unverified)
         }
-
-        let lines = rawText.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
 
         d("parse: \(lines.count) lines")
         for (i, line) in lines.enumerated() { d("  [\(i)] \(line)") }
@@ -94,7 +95,7 @@ struct ReceiptParser {
         d("bounds: nameStart=\(bounds.nameStart) nameEnd=\(bounds.nameEnd) priceStart=\(bounds.priceStart.map { "\($0)" } ?? "nil") priceEnd=\(bounds.priceEnd.map { "\($0)" } ?? "nil") footerStart=\(bounds.footerStart) splitColumn=\(bounds.isSplitColumn)")
 
         // Phase 4 & 5: Items
-        let lineItems = extractItems(from: lines, bounds: bounds, log: d)
+        let lineItems = extractItems(from: lines, ocrLines: ocrLines, bounds: bounds, log: d)
         d("items: \(lineItems.count) parsed")
         for (i, item) in lineItems.enumerated() {
             var info = "  [\(i)] \(item.canonicalName) = \(item.lineTotal)"
@@ -145,6 +146,14 @@ struct ReceiptParser {
             rawOcrText: rawText, merchantName: merchantName, purchaseDate: purchaseDate,
             lineItems: lineItems, subtotal: subtotal, tax: tax, total: total,
             parseConfidence: confidence, reconciliationStatus: reconciliation)
+    }
+
+    // Internal shim: wraps a raw string as OCRLines with uniform confidence.
+    // Used by tests and DEBUG previews; not for production OCR output.
+    func parse(_ rawText: String) -> ParsedReceipt {
+        let ocrLines = rawText.components(separatedBy: .newlines)
+            .map { OCRLine(text: $0, confidence: 1.0, boundingBox: nil) }
+        return parse(ocrLines)
     }
 
     #if DEBUG
@@ -352,9 +361,9 @@ struct ReceiptParser {
 
     // MARK: - Item extraction
 
-    private func extractItems(from lines: [String], bounds: SectionBounds, log: (String) -> Void = { _ in }) -> [ParsedLineItem] {
+    private func extractItems(from lines: [String], ocrLines: [OCRLine], bounds: SectionBounds, log: (String) -> Void = { _ in }) -> [ParsedLineItem] {
         if bounds.isSplitColumn {
-            let items = extractSplitColumnItems(from: lines, bounds: bounds, log: log)
+            let items = extractSplitColumnItems(from: lines, ocrLines: ocrLines, bounds: bounds, log: log)
             if items.count >= 9 { return items }
             // Price block had too few entries — OCR likely interleaved names and prices.
             // Fall through to mixed-column extraction of the name block.
@@ -362,13 +371,13 @@ struct ReceiptParser {
         }
         if bounds.foundVisa {
             // VISA detected: name block contains interleaved names and prices.
-            return extractMixedColumnItems(from: lines, start: bounds.nameStart, end: bounds.nameEnd, log: log)
+            return extractMixedColumnItems(from: lines, ocrLines: ocrLines, start: bounds.nameStart, end: bounds.nameEnd, log: log)
         }
-        return extractInlineItems(from: lines, start: bounds.nameStart, end: bounds.nameEnd)
+        return extractInlineItems(from: lines, ocrLines: ocrLines, start: bounds.nameStart, end: bounds.nameEnd)
     }
 
     /// Single-column format: each line has SKU? + name + price + taxcode?
-    private func extractInlineItems(from lines: [String], start: Int, end: Int) -> [ParsedLineItem] {
+    private func extractInlineItems(from lines: [String], ocrLines: [OCRLine], start: Int, end: Int) -> [ParsedLineItem] {
         guard start < end else { return [] }
         let section = Array(lines[start..<end])
         var items: [ParsedLineItem] = []
@@ -377,6 +386,7 @@ struct ReceiptParser {
             let line = section[idx]
             guard !line.isEmpty,
                   let match = try? Self.lineItemPattern.wholeMatch(in: line) else { idx += 1; continue }
+            let sourceLineIndex = start + idx  // captured before any idx mutation
             let sku = Self.extractSKU(from: line)
             let rawName = String(match.1)
             let priceStr = normalize(String(match.2))
@@ -399,19 +409,20 @@ struct ReceiptParser {
             items.append(ParsedLineItem(
                 rawName: rawName, canonicalName: canonical, quantity: quantity, unit: unit,
                 unitPrice: unitPrice, lineTotal: price, isDiscount: isDiscount,
-                confidence: canonical.count < 3 ? 0.4 : (isDiscount ? 0.75 : 0.85),
-                taxCode: taxCode, sku: sku))
+                confidence: itemConfidence(ocrLines: ocrLines, lineIndex: sourceLineIndex, canonical: canonical, isDiscount: isDiscount),
+                taxCode: taxCode, sku: sku,
+                boundingBox: sourceLineIndex < ocrLines.count ? ocrLines[sourceLineIndex].boundingBox : nil))
             idx += 1
         }
         return items
     }
 
     /// Split-column format: name block (nameStart..<nameEnd) zipped with price block (priceStart...priceEnd)
-    private func extractSplitColumnItems(from lines: [String], bounds: SectionBounds, log: (String) -> Void = { _ in }) -> [ParsedLineItem] {
+    private func extractSplitColumnItems(from lines: [String], ocrLines: [OCRLine], bounds: SectionBounds, log: (String) -> Void = { _ in }) -> [ParsedLineItem] {
         guard let priceStart = bounds.priceStart, let priceEnd = bounds.priceEnd else { return [] }
 
         // Collect name entries, attaching weight sub-lines to the preceding name
-        struct NameEntry { var raw: String; var weightQty: Double?; var weightUnit: String?; var weightUnitPrice: Decimal? }
+        struct NameEntry { var raw: String; var lineIndex: Int; var weightQty: Double?; var weightUnit: String?; var weightUnitPrice: Decimal? }
         var names: [NameEntry] = []
 
         var pendingWeightQty: Double? = nil
@@ -457,7 +468,7 @@ struct ReceiptParser {
             // Skip lines with too few alpha chars (catch-all for remaining OCR artifacts)
             let alphaCount = line.filter { $0.isLetter }.count
             guard alphaCount >= 4 else { continue }
-            names.append(NameEntry(raw: line, weightQty: nil, weightUnit: nil, weightUnitPrice: nil))
+            names.append(NameEntry(raw: line, lineIndex: i, weightQty: nil, weightUnit: nil, weightUnitPrice: nil))
         }
 
         // Collect price entries — use extractPrice() to capture both coded ("2.69 FB")
@@ -494,20 +505,22 @@ struct ReceiptParser {
             let isDiscount = (try? Self.discountPattern.firstMatch(in: nl.raw)) != nil || pl.price < 0
             let canonical  = Self.canonicalize(nl.raw)
             let sku = Self.extractSKU(from: nl.raw)
+            let sourceLineIndex = nl.lineIndex
             items.append(ParsedLineItem(
                 rawName: nl.raw, canonicalName: canonical,
                 quantity: nl.weightQty, unit: nl.weightUnit, unitPrice: nl.weightUnitPrice,
                 lineTotal: pl.price, isDiscount: isDiscount,
-                confidence: canonical.count < 3 ? 0.4 : (isDiscount ? 0.75 : 0.85),
-                taxCode: pl.taxCode, sku: sku))
+                confidence: itemConfidence(ocrLines: ocrLines, lineIndex: sourceLineIndex, canonical: canonical, isDiscount: isDiscount),
+                taxCode: pl.taxCode, sku: sku,
+                boundingBox: sourceLineIndex < ocrLines.count ? ocrLines[sourceLineIndex].boundingBox : nil))
         }
         return items
     }
 
     /// Mixed-column format: OCR interleaved names and prices in the same block.
     /// Scans [start, end) collecting names and prices independently, then zips by index.
-    private func extractMixedColumnItems(from lines: [String], start: Int, end: Int, log: (String) -> Void = { _ in }) -> [ParsedLineItem] {
-        struct NameEntry { var raw: String; var weightQty: Double?; var weightUnit: String?; var weightUnitPrice: Decimal? }
+    private func extractMixedColumnItems(from lines: [String], ocrLines: [OCRLine], start: Int, end: Int, log: (String) -> Void = { _ in }) -> [ParsedLineItem] {
+        struct NameEntry { var raw: String; var lineIndex: Int; var weightQty: Double?; var weightUnit: String?; var weightUnitPrice: Decimal? }
         struct PriceEntry { var price: Decimal; var taxCode: String? }
         var names: [NameEntry] = []
         var prices: [PriceEntry] = []
@@ -557,7 +570,7 @@ struct ReceiptParser {
             }
             // Name check
             guard line.filter({ $0.isLetter }).count >= 4 else { continue }
-            names.append(NameEntry(raw: line, weightQty: nil, weightUnit: nil, weightUnitPrice: nil))
+            names.append(NameEntry(raw: line, lineIndex: i, weightQty: nil, weightUnit: nil, weightUnitPrice: nil))
         }
 
         ScanningLog.parse.debug("mixedColumn: \(names.count, privacy: .public) names, \(prices.count, privacy: .public) prices")
@@ -581,12 +594,14 @@ struct ReceiptParser {
             let isDiscount = (try? Self.discountPattern.firstMatch(in: nl.raw)) != nil || pl.price < 0
             let canonical  = Self.canonicalize(nl.raw)
             let sku = Self.extractSKU(from: nl.raw)
+            let sourceLineIndex = nl.lineIndex
             items.append(ParsedLineItem(
                 rawName: nl.raw, canonicalName: canonical,
                 quantity: nl.weightQty, unit: nl.weightUnit, unitPrice: nl.weightUnitPrice,
                 lineTotal: pl.price, isDiscount: isDiscount,
-                confidence: canonical.count < 3 ? 0.4 : (isDiscount ? 0.75 : 0.85),
-                taxCode: pl.taxCode, sku: sku))
+                confidence: itemConfidence(ocrLines: ocrLines, lineIndex: sourceLineIndex, canonical: canonical, isDiscount: isDiscount),
+                taxCode: pl.taxCode, sku: sku,
+                boundingBox: sourceLineIndex < ocrLines.count ? ocrLines[sourceLineIndex].boundingBox : nil))
         }
         return items
     }
@@ -670,16 +685,26 @@ struct ReceiptParser {
         return abs(itemSum - subtotal) <= Decimal(string: "0.02")! ? .reconciled : .discrepancy
     }
 
+    private func itemConfidence(ocrLines: [OCRLine], lineIndex: Int, canonical: String, isDiscount: Bool) -> Double {
+        let base = lineIndex < ocrLines.count ? ocrLines[lineIndex].confidence : 0.7
+        let factor: Double
+        if canonical.count < 3                                        { factor = 0.50 }
+        else if canonical.allSatisfy({ $0.isNumber && $0.isASCII })  { factor = 0.60 }
+        else if isDiscount                                            { factor = 0.90 }
+        else                                                          { factor = 1.00 }
+        return min(base * factor, 1.0)
+    }
+
     private func computeConfidence(
         hasMerchant: Bool, hasDate: Bool, itemCount: Int,
         avgItemConfidence: Double, hasTotal: Bool, reconciliation: ReconciliationStatus
     ) -> Double {
         var score = 0.0
-        if hasMerchant  { score += 0.15 }
-        if hasDate      { score += 0.10 }
-        if itemCount > 0 { score += 0.25 }
-        score += avgItemConfidence * 0.25
-        if hasTotal     { score += 0.10 }
+        if hasMerchant   { score += 0.15 }
+        if hasDate       { score += 0.10 }
+        if itemCount > 0 { score += 0.20 }  // reduced from 0.25; avgItemConfidence weight increased
+        score += avgItemConfidence * 0.30   // increased from 0.25; meaningful now that it's real OCR data
+        if hasTotal      { score += 0.10 }
         if reconciliation == .reconciled { score += 0.15 }
         return min(score, 1.0)
     }

@@ -6,9 +6,12 @@
 //
 
 import SwiftUI
+import UIKit
+internal import os
 
 struct ReceiptReviewView: View {
     let parsed: ParsedReceipt
+    let images: [UIImage]
     var onSave: (ParsedReceipt) -> Void   // synchronous — caller wraps in Task to avoid
     var onCancel: () -> Void              // @in_guaranteed borrow through async thunk chain
 
@@ -20,8 +23,9 @@ struct ReceiptReviewView: View {
     @State private var editedForSave: ParsedReceipt? = nil
     private let validator = ReceiptValidator()
 
-    init(parsed: ParsedReceipt, onSave: @escaping (ParsedReceipt) -> Void, onCancel: @escaping () -> Void) {
+    init(parsed: ParsedReceipt, images: [UIImage], onSave: @escaping (ParsedReceipt) -> Void, onCancel: @escaping () -> Void) {
         self.parsed = parsed
+        self.images = images
         self.onSave = onSave
         self.onCancel = onCancel
         _merchantName = State(initialValue: parsed.merchantName ?? "")
@@ -67,6 +71,8 @@ struct ReceiptReviewView: View {
                 if let result = validationResult, let edited = editedForSave {
                     ValidationReviewView(
                         result: result,
+                        parsed: edited,
+                        images: images,
                         onSaveAnyway: {
                             showingValidation = false
                             isSaving = true
@@ -113,11 +119,14 @@ struct ReceiptReviewView: View {
             reconciliationStatus: parsed.reconciliationStatus
         )
         let result = validator.validate(edited)
+        ScanningLog.validation.log("save tapped — requiresReview: \(result.requiresReview, privacy: .public), preferRescan: \(result.preferRescan, privacy: .public), totalWeight: \(result.totalWeight, privacy: .public)")
         if result.requiresReview {
+            ScanningLog.validation.log("pushing ValidationReviewView")
             validationResult = result
             editedForSave = edited
             showingValidation = true
         } else {
+            ScanningLog.validation.log("no review needed — saving directly")
             isSaving = true
             onSave(edited)
         }
