@@ -11,6 +11,9 @@ import OSLog
 
 struct ReceiptValidator {
 
+    // Fixed Vision-space bbox covering the top 30% of the image (bottom-left origin: y=0.70→1.00)
+    private static let headerRegionBox = CGRect(x: 0, y: 0.70, width: 1.0, height: 0.30)
+
     private let log = ScanningLog.validation
 
     func validate(_ receipt: ParsedReceipt) -> ReceiptValidationResult {
@@ -75,7 +78,7 @@ struct ReceiptValidator {
 
         if receipt.purchaseDate == nil {
             log.log("  → missingDate [warning]")
-            issues.append(.init(kind: .missingDate, severity: .warning))
+            issues.append(.init(kind: .missingDate, severity: .warning, associatedBoundingBox: Self.headerRegionBox))
         }
 
         if let subtotal = receipt.subtotal, subtotal != 0, let tax = receipt.tax {

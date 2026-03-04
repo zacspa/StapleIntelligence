@@ -73,10 +73,10 @@ struct ReceiptReviewView: View {
                         result: result,
                         parsed: edited,
                         images: images,
-                        onSaveAnyway: {
+                        onSaveAnyway: { resolvedReceipt in
                             showingValidation = false
                             isSaving = true
-                            onSave(edited)
+                            onSave(resolvedReceipt)
                         },
                         onRescan: {
                             showingValidation = false
