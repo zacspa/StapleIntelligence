@@ -47,7 +47,7 @@ struct ReceiptEditView: View {
             }
 
             Section("Items (\(receipt.lineItems.count))") {
-                ForEach(receipt.lineItems, id: \.id) { item in
+                ForEach(receipt.lineItems.sorted(by: { $0.sortOrder < $1.sortOrder }), id: \.id) { item in
                     NavigationLink(value: item.id) {
                         LineItemSummaryRow(item: item)
                     }

@@ -31,6 +31,7 @@ final class LineItem {
     var isDiscount: Bool
     var confidence: Double
     var sku: String?
+    var sortOrder: Int
 
     init(
         id: UUID = UUID(),
@@ -42,7 +43,8 @@ final class LineItem {
         lineTotal: Decimal,
         isDiscount: Bool = false,
         confidence: Double = 0,
-        sku: String? = nil
+        sku: String? = nil,
+        sortOrder: Int = 0
     ) {
         self.id = id
         self.rawName = rawName
@@ -54,5 +56,6 @@ final class LineItem {
         self.isDiscount = isDiscount
         self.confidence = confidence
         self.sku = sku
+        self.sortOrder = sortOrder
     }
 }

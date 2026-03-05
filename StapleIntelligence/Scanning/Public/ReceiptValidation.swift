@@ -28,6 +28,7 @@ enum ValidationIssueKind {
     // Error
     case reconciliationFailed
     case totalsMismatch
+    case skuPriceConflict(count: Int)
 
     // Warning
     case missingMerchant
@@ -43,18 +44,45 @@ enum ValidationIssueKind {
     case itemNamesNonAlpha(count: Int)
 }
 
+// MARK: - Issue instance
+
+/// Per-instance metadata for a SKU price conflict — the two prices that disagreed.
+struct SKUConflictInfo {
+    let sku: String
+    let prices: [Decimal]  // the two conflicting prices, sorted ascending
+}
+
+/// One swipeable page of a validation issue card.
+/// `bboxes` holds one or more Vision-coordinate rects cropped into a single composite image:
+/// one rect → single strip; two rects → two strips stacked vertically (skuPriceConflict).
+/// `skuConflict` is non-nil only for skuPriceConflict instances.
+struct ValidationIssueInstance {
+    let bboxes: [CGRect]
+    let skuConflict: SKUConflictInfo?
+
+    init(bboxes: [CGRect], skuConflict: SKUConflictInfo? = nil) {
+        self.bboxes = bboxes
+        self.skuConflict = skuConflict
+    }
+}
+
 // MARK: - Issue
 
 struct ReceiptValidationIssue {
     let kind: ValidationIssueKind
     let severity: ValidationSeverity
-    let associatedBoundingBox: CGRect?  // set by validator; nil for receipt-level issues
+    /// Per-instance bounding boxes. Empty for receipt-level issues with no image crops.
+    let instances: [ValidationIssueInstance]
 
-    init(kind: ValidationIssueKind, severity: ValidationSeverity, associatedBoundingBox: CGRect? = nil) {
+    init(kind: ValidationIssueKind, severity: ValidationSeverity,
+         instances: [ValidationIssueInstance] = []) {
         self.kind = kind
         self.severity = severity
-        self.associatedBoundingBox = associatedBoundingBox
+        self.instances = instances
     }
+
+    /// Convenience: the first bbox of the first instance (used for relevance checks).
+    var firstBBox: CGRect? { instances.first?.bboxes.first }
 
     var title: String {
         switch kind {
@@ -66,6 +94,7 @@ struct ReceiptValidationIssue {
         case .missingDate:                  return "No Purchase Date"
         case .implausibleTaxRate:           return "Unusual Tax Rate"
         case .duplicateItems(let n):        return "Duplicate Items (\(n))"
+        case .skuPriceConflict(let n):      return "SKU Price Conflict (\(n))"
         case .lowConfidenceItems(let n):    return "Low-Confidence Items (\(n))"
         case .itemsWithZeroPrice(let n):    return "Items With $0 Price (\(n))"
         case .itemNamesAllDigits(let n):    return "Items With Digit-Only Names (\(n))"
@@ -84,6 +113,8 @@ struct ReceiptValidationIssue {
             return "The sum of line items doesn't match the subtotal on the receipt. One or more items may be missing or have incorrect prices."
         case .totalsMismatch:
             return "Subtotal plus tax doesn't equal the total shown on the receipt. A value may have been misread."
+        case .skuPriceConflict(let n):
+            return "\(n) SKU\(n == 1 ? "" : "s") appear\(n == 1 ? "s" : "") at more than one price on this receipt. This usually means OCR misread a digit in the price column. Check the flagged items carefully."
         case .missingMerchant:
             return "No store name was found. You can type one in the Merchant field before saving."
         case .missingDate:
