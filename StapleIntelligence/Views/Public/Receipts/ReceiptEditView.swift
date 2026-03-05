@@ -146,7 +146,7 @@ private struct LineItemSummaryRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.canonicalName)
                     .foregroundStyle(item.isDiscount ? .red : .primary)
-                if let qty = item.quantity, let unit = item.unit {
+                if case .byWeight(let qty, let unit) = item.itemType {
                     Text(weightLabel(qty: qty, unit: unit, unitPrice: item.unitPrice))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -159,9 +159,9 @@ private struct LineItemSummaryRow: View {
         }
     }
 
-    private func weightLabel(qty: Double, unit: String, unitPrice: Decimal?) -> String {
+    private func weightLabel(qty: Double, unit: WeightUnit, unitPrice: Decimal?) -> String {
         let qtyStr = String(format: "%.2f", qty)
-        guard let up = unitPrice else { return "\(qtyStr) \(unit)" }
-        return "\(qtyStr) \(unit) × \(up.formatted(.currency(code: "USD")))/\(unit)"
+        guard let up = unitPrice else { return "\(qtyStr) \(unit.rawValue)" }
+        return "\(qtyStr) \(unit.rawValue) × \(up.formatted(.currency(code: "USD")))/\(unit.rawValue)"
     }
 }

@@ -67,8 +67,7 @@ struct ReceiptPersistenceService {
             return LineItem(
                 rawName: item.rawName,
                 canonicalName: resolvedCanonical,
-                quantity: item.quantity,
-                unit: item.unit,
+                itemType: item.itemType,
                 unitPrice: item.unitPrice,
                 lineTotal: item.lineTotal,
                 isDiscount: item.isDiscount,
@@ -133,9 +132,9 @@ struct ReceiptPersistenceService {
             var info = "  [\(i)] \(item.canonicalName) = \(item.lineTotal)"
             if item.rawName != item.canonicalName { info += "  raw=\"\(item.rawName)\"" }
             if let sku = item.sku { info += "  sku=\(sku)" }
-            if let qty = item.quantity, let unit = item.unit {
-                info += "  \(String(format: "%.2f", qty)) \(unit)"
-                if let up = item.unitPrice { info += " × \(up)/\(unit)" }
+            if case .byWeight(let qty, let unit) = item.itemType {
+                info += "  \(String(format: "%.2f", qty)) \(unit.rawValue)"
+                if let up = item.unitPrice { info += " × \(up)/\(unit.rawValue)" }
             }
             if item.isDiscount { info += "  DISC" }
             lines.append(info)

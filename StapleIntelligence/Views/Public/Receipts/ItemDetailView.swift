@@ -44,13 +44,13 @@ struct ItemDetailView: View {
                     Text(item.lineTotal, format: .currency(code: "USD"))
                         .monospacedDigit()
                 }
-                if let qty = item.quantity, let unit = item.unit, let unitPrice = item.unitPrice {
+                if case .byWeight(let qty, let unit) = item.itemType, let unitPrice = item.unitPrice {
                     LabeledContent("Unit Price") {
                         Text(unitPrice, format: .currency(code: "USD"))
                             .monospacedDigit()
                     }
                     LabeledContent("Quantity") {
-                        Text("\(String(format: "%.2f", qty)) \(unit)")
+                        Text("\(String(format: "%.2f", qty)) \(unit.rawValue)")
                             .monospacedDigit()
                     }
                 }
