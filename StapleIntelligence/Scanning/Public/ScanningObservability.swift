@@ -16,7 +16,8 @@ enum ScanningLog {
     static let parse     = Logger(subsystem: subsystem, category: "parse")
     static let dbSave    = Logger(subsystem: subsystem, category: "db_save")
     static let imgSave   = Logger(subsystem: subsystem, category: "image_persist")
-    static let edit      = Logger(subsystem: subsystem, category: "edit")
+    static let edit       = Logger(subsystem: subsystem, category: "edit")
+    static let validation = Logger(subsystem: subsystem, category: "validation")
 }
 
 // MARK: - Transaction
@@ -41,9 +42,10 @@ struct ReceiptProcessTransaction {
         )
     }
 
-    func endParse(itemCount: Int, parseConfidence: Double, reconciliation: ReconciliationStatus, durationMs: Int) {
+    func endParse(itemCount: Int, parseConfidence: Double, reconciliation: ReconciliationStatus,
+                  lowConfItemCount: Int, durationMs: Int) {
         ScanningLog.parse.log(
-            "parse complete — items: \(itemCount, privacy: .public), conf: \(parseConfidence, privacy: .public), reconciliation: \(reconciliation.rawValue, privacy: .public), ms: \(durationMs, privacy: .public)"
+            "parse complete — items: \(itemCount, privacy: .public), conf: \(parseConfidence, privacy: .public), lowConf: \(lowConfItemCount, privacy: .public), reconciliation: \(reconciliation.rawValue, privacy: .public), ms: \(durationMs, privacy: .public)"
         )
     }
 

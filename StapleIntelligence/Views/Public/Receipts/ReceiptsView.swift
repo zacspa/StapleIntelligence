@@ -20,6 +20,7 @@ struct ReceiptsView: View {
     @State private var scanError: IdentifiableError? = nil
     @State private var isProcessing = false
     @State private var pipelineTask: Task<Void, Never>? = nil
+    @State private var receiptToDelete: Receipt? = nil
 
     private let ocrService = ReceiptOCRService()
     private let parser = ReceiptParser()
@@ -39,6 +40,9 @@ struct ReceiptsView: View {
                         NavigationLink(value: receipt) {
                             ReceiptRow(receipt: receipt)
                         }
+                        .simultaneousGesture(LongPressGesture().onEnded { _ in
+                            receiptToDelete = receipt
+                        })
                     }
                     .navigationDestination(for: Receipt.self) { receipt in
                         ReceiptEditView(receipt: receipt)
@@ -69,6 +73,22 @@ struct ReceiptsView: View {
                 }
             }
         }
+        .alert("Delete Receipt?", isPresented: Binding(
+            get: { receiptToDelete != nil },
+            set: { if !$0 { receiptToDelete = nil } }
+        )) {
+            Button("Delete", role: .destructive) {
+                if let receipt = receiptToDelete {
+                    modelContext.delete(receipt)
+                    receiptToDelete = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { receiptToDelete = nil }
+        } message: {
+            if let receipt = receiptToDelete {
+                Text("\(receipt.merchant?.displayName ?? "Unknown Merchant") will be permanently deleted.")
+            }
+        }
         .fullScreenCover(isPresented: $isShowingScanner) {
             ScannerView(
                 onScan: { images in
@@ -87,6 +107,7 @@ struct ReceiptsView: View {
         .sheet(item: $parsedReceipt) { receipt in
             ReceiptReviewView(
                 parsed: receipt,
+                images: scannedImages,
                 onSave: { edited in
                     // Capture `edited` here — Task copies the struct into its heap closure,
                     // giving lineItems a strong reference before any suspension.
@@ -115,17 +136,17 @@ struct ReceiptsView: View {
 
         do {
             let ocrStart = Date()
-            let (rawText, avgConf) = try await ocrService.recognizeText(in: images)
-            let ocrLines = rawText.components(separatedBy: .newlines).count
-            tx.endOCR(lineCount: ocrLines, avgConfidence: avgConf, durationMs: ms(since: ocrStart))
+            let (ocrLines, avgConf) = try await ocrService.recognizeText(in: images)
+            tx.endOCR(lineCount: ocrLines.count, avgConfidence: avgConf, durationMs: ms(since: ocrStart))
 
             let parseStart = Date()
             let localParser = parser
-            let parsed = await Task.detached(priority: .userInitiated) { localParser.parse(rawText) }.value
+            let parsed = await Task.detached(priority: .userInitiated) { localParser.parse(ocrLines) }.value
             tx.endParse(
                 itemCount: parsed.lineItems.count,
                 parseConfidence: parsed.parseConfidence,
                 reconciliation: parsed.reconciliationStatus,
+                lowConfItemCount: parsed.lineItems.filter { $0.confidence < 0.9 }.count,
                 durationMs: ms(since: parseStart)
             )
 

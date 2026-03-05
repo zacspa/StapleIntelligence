@@ -52,7 +52,7 @@ struct ReceiptPersistenceService {
             }
         }
 
-        let lineItems: [LineItem] = localLineItems.map { item in
+        let lineItems: [LineItem] = localLineItems.enumerated().map { (index, item) in
             var resolvedCanonical = item.canonicalName
             if let sku = item.sku {
                 if let existing = productsBySku[sku] {
@@ -73,7 +73,8 @@ struct ReceiptPersistenceService {
                 lineTotal: item.lineTotal,
                 isDiscount: item.isDiscount,
                 confidence: item.confidence,
-                sku: item.sku
+                sku: item.sku,
+                sortOrder: index
             )
         }
 
