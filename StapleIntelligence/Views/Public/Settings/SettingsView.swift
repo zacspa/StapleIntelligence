@@ -12,7 +12,12 @@ struct SettingsView: View {
         NavigationStack {
             SettingsForm()
                 .navigationTitle("Settings")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+                .toolbarColorScheme(.dark, for: .navigationBar)
         }
+        .background(AppTheme.Colors.base)
     }
 }
 
@@ -26,6 +31,7 @@ private struct SettingsForm: View {
 
     var body: some View {
         Form {
+
             Section {
                 Toggle("Totals & reconciliation", isOn: $detectReconciliation)
                 Toggle("Price conflicts", isOn: $detectPriceConflicts)
@@ -45,6 +51,8 @@ private struct SettingsForm: View {
             }
             #endif
         }
+        .scrollContentBackground(.hidden)
+        .background(AppTheme.Colors.base)
     }
 }
 

@@ -53,20 +53,31 @@ struct ReceiptReviewView: View {
                 if parsed.subtotal != nil || parsed.tax != nil || parsed.total != nil {
                     Section("Totals") {
                         if let subtotal = parsed.subtotal {
-                            LabeledContent("Subtotal", value: subtotal, format: .currency(code: "USD"))
+                            LabeledContent("Subtotal") {
+                                Text(subtotal, format: .currency(code: "USD")).monospacedDigit()
+                            }
                         }
                         if let tax = parsed.tax {
-                            LabeledContent("Tax", value: tax, format: .currency(code: "USD"))
+                            LabeledContent("Tax") {
+                                Text(tax, format: .currency(code: "USD")).monospacedDigit()
+                            }
                         }
                         if let total = parsed.total {
-                            LabeledContent("Total", value: total, format: .currency(code: "USD"))
-                                .bold()
+                            LabeledContent("Total") {
+                                Text(total, format: .currency(code: "USD")).monospacedDigit()
+                            }
+                            .bold()
                         }
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(AppTheme.Colors.base)
             .navigationTitle("Review Receipt")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .navigationDestination(isPresented: $showingValidation) {
                 if let result = validationResult, let edited = editedForSave {
                     ValidationReviewView(
@@ -128,6 +139,7 @@ struct ReceiptReviewView: View {
         } else {
             ScanningLog.validation.log("no review needed — saving directly")
             isSaving = true
+            HapticFeedback.notification(.success)
             onSave(edited)
         }
     }
@@ -148,7 +160,7 @@ private struct LineItemRow: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.canonicalName)
-                    .foregroundStyle(item.isDiscount ? .red : .primary)
+                    .foregroundStyle(item.isDiscount ? AppTheme.Colors.negative : .primary)
                 if case .byWeight(let qty, let unit) = item.itemType {
                     Text(weightLabel(qty: qty, unit: unit, unitPrice: item.unitPrice))
                         .font(.caption)
@@ -157,12 +169,12 @@ private struct LineItemRow: View {
                 if item.confidence < 0.6 {
                     Text("(low confidence)")
                         .font(.caption2)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(AppTheme.Colors.caution)
                 }
             }
             Spacer()
             Text(item.lineTotal, format: .currency(code: "USD"))
-                .foregroundStyle(item.isDiscount ? .red : .primary)
+                .foregroundStyle(item.isDiscount ? AppTheme.Colors.negative : .primary)
                 .monospacedDigit()
         }
     }

@@ -57,20 +57,31 @@ struct ReceiptEditView: View {
             if receipt.subtotal != nil || receipt.tax != nil || receipt.total != nil {
                 Section("Totals") {
                     if let subtotal = receipt.subtotal {
-                        LabeledContent("Subtotal", value: subtotal, format: .currency(code: "USD"))
+                        LabeledContent("Subtotal") {
+                            Text(subtotal, format: .currency(code: "USD")).monospacedDigit()
+                        }
                     }
                     if let tax = receipt.tax {
-                        LabeledContent("Tax", value: tax, format: .currency(code: "USD"))
+                        LabeledContent("Tax") {
+                            Text(tax, format: .currency(code: "USD")).monospacedDigit()
+                        }
                     }
                     if let total = receipt.total {
-                        LabeledContent("Total", value: total, format: .currency(code: "USD"))
-                            .bold()
+                        LabeledContent("Total") {
+                            Text(total, format: .currency(code: "USD")).monospacedDigit()
+                        }
+                        .bold()
                     }
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(AppTheme.Colors.base)
         .navigationTitle("Edit Receipt")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { save() }
@@ -132,6 +143,7 @@ struct ReceiptEditView: View {
         )
 
         signposter.endInterval("merchant_name_save", spState)
+        HapticFeedback.notification(.success)
         dismiss()
     }
 }
@@ -145,7 +157,7 @@ private struct LineItemSummaryRow: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.canonicalName)
-                    .foregroundStyle(item.isDiscount ? .red : .primary)
+                    .foregroundStyle(item.isDiscount ? AppTheme.Colors.negative : .primary)
                 if case .byWeight(let qty, let unit) = item.itemType {
                     Text(weightLabel(qty: qty, unit: unit, unitPrice: item.unitPrice))
                         .font(.caption)
@@ -154,7 +166,7 @@ private struct LineItemSummaryRow: View {
             }
             Spacer()
             Text(item.lineTotal, format: .currency(code: "USD"))
-                .foregroundStyle(item.isDiscount ? .red : .primary)
+                .foregroundStyle(item.isDiscount ? AppTheme.Colors.negative : .primary)
                 .monospacedDigit()
         }
     }

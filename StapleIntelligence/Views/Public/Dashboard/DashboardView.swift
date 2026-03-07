@@ -31,20 +31,28 @@ struct DashboardView: View {
                     )
                 } else {
                     ScrollView {
-                        VStack(spacing: 24) {
+                        VStack(spacing: AppTheme.Spacing.xl) {
                             SpendSummaryCard(monthTotal: monthTotal, prevMonthTotal: prevMonthTotal)
                             WeeklySpendChart(data: weeklyData)
                             TopMerchantsSection(merchants: topMerchants)
                         }
                         .padding()
+                        .animation(AppTheme.Animation.springList, value: receipts.count)
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppTheme.Colors.base)
             .navigationTitle("Dashboard")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .task(id: receipts.count) {
                 recompute()
             }
         }
+        .background(AppTheme.Colors.base)
     }
 
     private func recompute() {
@@ -83,27 +91,23 @@ private struct SpendSummaryCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("This month")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Text(monthTotal, format: .currency(code: "USD"))
-                .font(.system(size: 40, weight: .bold, design: .rounded))
-            if let pct = deltaPct {
-                let isUp = pct >= 0
-                Text("\(isUp ? "+" : "")\(pct * 100, specifier: "%.0f")% vs last month")
-                    .font(.caption)
-                    .foregroundStyle(isUp ? .red : .green)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background((isUp ? Color.red : Color.green).opacity(0.12))
-                    .clipShape(Capsule())
+        AppCard {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+                SectionHeader(title: "This month")
+                Text(monthTotal, format: .currency(code: "USD"))
+                    .font(AppTheme.Typography.hero)
+                    .foregroundStyle(.primary)
+                if let pct = deltaPct {
+                    HStack(spacing: AppTheme.Spacing.xs) {
+                        DeltaBadge(pct: pct)
+                        Text("vs last month")
+                            .font(AppTheme.Typography.caption)
+                            .foregroundStyle(AppTheme.Colors.secondary)
+                    }
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -111,32 +115,34 @@ private struct WeeklySpendChart: View {
     let data: [DateBucketTotal]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Last 8 Weeks")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Chart(data) { bucket in
-                BarMark(
-                    x: .value("Week", bucket.date, unit: .weekOfYear),
-                    y: .value("$", NSDecimalNumber(decimal: bucket.total).doubleValue)
-                )
-                .foregroundStyle(Color.accentColor)
-            }
-            .chartXAxis {
-                AxisMarks(values: .stride(by: .weekOfYear)) { value in
-                    if let date = value.as(Date.self) {
-                        AxisValueLabel {
-                            Text(date, format: .dateTime.month(.abbreviated).day())
-                                .font(.caption2)
+        AppCard {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+                SectionHeader(title: "Last 8 Weeks")
+                Chart(data) { bucket in
+                    BarMark(
+                        x: .value("Week", bucket.date, unit: .weekOfYear),
+                        y: .value("$", NSDecimalNumber(decimal: bucket.total).doubleValue)
+                    )
+                    .foregroundStyle(AppTheme.Colors.accent)
+                    .cornerRadius(AppTheme.Radius.xs)
+                }
+                .chartYAxis(.hidden)
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .weekOfYear)) { value in
+                        if let date = value.as(Date.self) {
+                            AxisValueLabel {
+                                Text(date, format: .dateTime.month(.abbreviated).day())
+                                    .font(.caption2)
+                            }
+                            .foregroundStyle(AppTheme.Colors.secondary)
                         }
                     }
                 }
+                .frame(height: 160)
+                .shadow(color: AppTheme.Colors.accent.opacity(0.45), radius: 6)
+                .shadow(color: AppTheme.Colors.accent.opacity(0.20), radius: 16)
             }
-            .frame(height: 160)
         }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -145,35 +151,33 @@ private struct TopMerchantsSection: View {
 
     var body: some View {
         if !merchants.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Top Merchants")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                ForEach(merchants) { merchant in
-                    VStack(spacing: 4) {
-                        HStack {
-                            Text(merchant.displayName)
-                            Spacer()
-                            Text(merchant.total, format: .currency(code: "USD"))
-                                .font(.body.monospacedDigit())
+            AppCard {
+                VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                    SectionHeader(title: "Top Merchants")
+                    ForEach(merchants) { merchant in
+                        VStack(spacing: AppTheme.Spacing.xs) {
+                            HStack {
+                                Text(merchant.displayName)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Text(merchant.total, format: .currency(code: "USD"))
+                                    .font(AppTheme.Typography.bodyMono)
+                            }
+                            GeometryReader { geo in
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(AppTheme.Colors.accent.opacity(0.25))
+                                    .frame(width: geo.size.width, height: 4)
+                                    .overlay(alignment: .leading) {
+                                        RoundedRectangle(cornerRadius: 2)
+                                            .fill(AppTheme.Colors.accent)
+                                            .frame(width: geo.size.width * merchant.fraction)
+                                    }
+                            }
+                            .frame(height: 4)
                         }
-                        GeometryReader { geo in
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(Color.accentColor.opacity(0.25))
-                                .frame(width: geo.size.width, height: 4)
-                                .overlay(alignment: .leading) {
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .fill(Color.accentColor)
-                                        .frame(width: geo.size.width * merchant.fraction)
-                                }
-                        }
-                        .frame(height: 4)
                     }
                 }
             }
-            .padding()
-            .background(Color(.secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }
 }
