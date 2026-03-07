@@ -221,6 +221,19 @@ struct ReceiptParserTests {
         if case .byCount(let count) = milk.itemType { #expect(count == 1) }
     }
 
+    // MARK: - ALDI split-column footer fix
+
+    /// Reproduces the case where SUBTOTAL label appears between the payment block and the
+    /// price column start. Without the footerStart fix, extractSubtotal never sees the label
+    /// and returns nil. The subtotal value (164.28) is >= 30 so extractPrice skips it, leaving
+    /// 1.42 and 5.47 (tax lines) as the price block. footerStart without fix = line after 5.47,
+    /// which only contains "TOTAL $171.17" — SUBTOTAL label and value are lost.
+    @Test func splitColumnSubtotalLabelBeforePriceBlockIsCaptured() {
+        let r = parser.parse(aldiStyleSplitFooter)
+        #expect(r.subtotal == Decimal(string: "164.28"))
+        #expect(r.total == Decimal(string: "171.17"))
+    }
+
     @Test func dateNearVisaLinePreferredOverHeaderDate() throws {
         // Receipt has "01/01/25" in a header line and "11/30/25" near VISA.
         // Parser picks the one closest to the VISA line.
@@ -266,21 +279,22 @@ private extension ReceiptParserTests {
     }
 
     /// Split-column: ten names before VISA, ten prices after APPROVED, distinct blocks.
+    /// Items carry SKU prefixes so the SKU gate accepts them.
     var splitColumn: String {
         """
         SPLIT STORE
         123 Main Street
         Your cashier was Charlie
-        Item One
-        Item Two
-        Item Three
-        Item Four
-        Item Five
-        Item Six
-        Item Seven
-        Item Eight
-        Item Nine
-        Item Ten
+        100001 Item One
+        200002 Item Two
+        300003 Item Three
+        400004 Item Four
+        500005 Item Five
+        600006 Item Six
+        700007 Item Seven
+        800008 Item Eight
+        900009 Item Nine
+        111110 Item Ten
         VISA
         **x9999
         01/15/25 10:00
@@ -363,7 +377,7 @@ private extension ReceiptParserTests {
         ALDI
         Store #20
         Your cashier today was Bob
-        262747 Bananas LRW
+        262747 Bananas
         (G) 1.531b - (T) 0.011b
         (N) 1.52 1b x 0.49/1b
         VISA
@@ -373,6 +387,30 @@ private extension ReceiptParserTests {
         0.74 FB
         SUBTOTAL 0.74
         TOTAL $0.74
+        """
+    }
+
+    /// ALDI-style split-column where the SUBTOTAL label appears *between* the payment block
+    /// and the price column start. OCR places it before the tax lines (1.42, 5.47) that
+    /// form the price block. Without the footerStart fix, footerStart lands after 5.47 and
+    /// extractSubtotal never sees the SUBTOTAL label.
+    var aldiStyleSplitFooter: String {
+        """
+        ALDI STORE
+        Store #5
+        Your cashier was Zack
+        123456 Item One
+        789012 Item Two
+        345678 Item Three
+        VISA
+        **x5678
+        02/15/25 14:30
+        ++ APPROVED++
+        SUBTOTAL
+        164.28
+        1.42
+        5.47
+        TOTAL $171.17
         """
     }
 

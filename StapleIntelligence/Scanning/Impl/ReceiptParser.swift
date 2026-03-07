@@ -362,7 +362,19 @@ struct ReceiptParser {
         // When there's a price block, footer begins after it (+1 skips the last price line).
         // When there's no price block (single-column or VISA-only), the SUBTOTAL line IS
         // nameEnd — include it in the footer so extractSubtotal can find it.
-        let footerStart = min(priceEnd.map { $0 + 1 } ?? nameEnd, lines.count)
+        var footerStart = min(priceEnd.map { $0 + 1 } ?? nameEnd, lines.count)
+
+        // ALDI split-column: the SUBTOTAL label appears in the left column (between the VISA
+        // line and the price block start), while its value appears in the right column (after
+        // priceEnd). Walk footerStart back to the SUBTOTAL label so extractSubtotal sees both.
+        if let ps = priceStart, nameEnd < ps,
+           let idx = (nameEnd..<ps).first(where: {
+               (try? Self.subtotalLabelPattern.wholeMatch(in: lines[$0])) != nil
+           }) {
+            footerStart = min(footerStart, idx)
+            ScanningLog.parse.debug("bounds: SUBTOTAL label at \(idx, privacy: .public) before price block → footerStart adjusted to \(footerStart, privacy: .public)")
+        }
+
         ScanningLog.parse.debug("bounds: footerStart=\(footerStart, privacy: .public)")
         return SectionBounds(nameStart: nameStart, nameEnd: nameEnd,
                              priceStart: priceStart, priceEnd: priceEnd,
@@ -408,10 +420,10 @@ struct ReceiptParser {
     private func extractItems(from lines: [String], ocrLines: [OCRLine], bounds: SectionBounds, log: (String) -> Void = { _ in }) -> [ParsedLineItem] {
         if bounds.isSplitColumn {
             let items = extractSplitColumnItems(from: lines, ocrLines: ocrLines, bounds: bounds, log: log)
-            if items.count >= 9 { return items }
-            // Price block had too few entries — OCR likely interleaved names and prices.
+            if items.count > 0 { return items }
+            // Price block was empty — OCR likely interleaved names and prices.
             // Fall through to mixed-column extraction of the name block.
-            log("splitColumn yielded \(items.count) items — retrying as mixed column")
+            log("splitColumn yielded 0 items — retrying as mixed column")
         }
         if bounds.foundVisa {
             // VISA detected: name block contains interleaved names and prices.

@@ -94,8 +94,24 @@ struct ItemDetailView: View {
     }
 
     private func save() {
-        item.canonicalName = canonicalName.trimmingCharacters(in: .whitespaces)
+        let newName = canonicalName.trimmingCharacters(in: .whitespaces)
+        if newName != item.canonicalName {
+            upsertMergeRule(rawName: item.rawName, canonicalName: newName)
+        }
+        item.canonicalName = newName
         try? modelContext.save()
         dismiss()
+    }
+
+    private func upsertMergeRule(rawName: String, canonicalName: String) {
+        var descriptor = FetchDescriptor<MergeRule>(
+            predicate: #Predicate { $0.rawName == rawName }
+        )
+        descriptor.fetchLimit = 1
+        if let existing = try? modelContext.fetch(descriptor).first {
+            existing.canonicalName = canonicalName
+        } else {
+            modelContext.insert(MergeRule(rawName: rawName, canonicalName: canonicalName))
+        }
     }
 }

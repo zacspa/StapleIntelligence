@@ -27,6 +27,7 @@ struct ValidationReviewView: View {
     var onSaveAnyway: (ParsedReceipt) -> Void
     var onRescan: () -> Void
 
+    @Environment(\.dismiss) private var dismiss
     @State private var resolvedParsed: ParsedReceipt
     @State private var currentIndex = 0
     @State private var cropCache: [Int: [UIImage?]] = [:]
@@ -98,8 +99,7 @@ struct ValidationReviewView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Back") {}
-                    .hidden()
+                Button("Cancel") { dismiss() }
             }
         }
         .task {

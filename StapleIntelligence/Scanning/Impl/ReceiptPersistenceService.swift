@@ -34,6 +34,16 @@ struct ReceiptPersistenceService {
         }
         let normalizedMerchantName = merchant?.normalizedName
 
+        // Batch-fetch all MergeRules and build a lookup for rawNames in this receipt.
+        var mergeRulesByRawName: [String: String] = [:]
+        let rawNamesInReceipt = Set(localLineItems.map(\.rawName))
+        if !rawNamesInReceipt.isEmpty,
+           let allRules = try? modelContext.fetch(FetchDescriptor<MergeRule>()) {
+            for rule in allRules where rawNamesInReceipt.contains(rule.rawName) {
+                mergeRulesByRawName[rule.rawName] = rule.canonicalName
+            }
+        }
+
         // Batch-fetch all existing MerchantProducts for this merchant in one query,
         // then resolve/insert from a dictionary — avoids N per-item SQLite queries.
         var productsBySku: [String: MerchantProduct] = [:]
@@ -53,7 +63,7 @@ struct ReceiptPersistenceService {
         }
 
         let lineItems: [LineItem] = localLineItems.enumerated().map { (index, item) in
-            var resolvedCanonical = item.canonicalName
+            var resolvedCanonical = mergeRulesByRawName[item.rawName] ?? item.canonicalName
             if let sku = item.sku {
                 if let existing = productsBySku[sku] {
                     resolvedCanonical = existing.canonicalName
@@ -174,6 +184,17 @@ struct ReceiptPersistenceService {
                 urls.append(url)
             }
             return urls
+        }.value
+    }
+
+    /// Removes the image directory for a receipt. Call before deleting a Receipt from SwiftData.
+    static func deleteImages(for receiptID: UUID) async {
+        await Task.detached(priority: .utility) {
+            guard let docs = try? FileManager.default.url(
+                for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+            else { return }
+            let dir = docs.appendingPathComponent("receipts/\(receiptID.uuidString)", isDirectory: true)
+            try? FileManager.default.removeItem(at: dir)
         }.value
     }
 
