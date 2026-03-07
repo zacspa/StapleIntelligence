@@ -183,6 +183,20 @@ struct ReceiptParserTests {
         #expect(comps.year == 2025)
     }
 
+    // MARK: - (N) net weight annotation format
+
+    @Test func nWeightLineAttachedToPrecedingItem() throws {
+        let receipt = parser.parse(aldiNWeightColumn)
+        let bananas = try #require(receipt.lineItems.first { $0.canonicalName == "BANANAS" })
+        guard case .byWeight(let qty, let unit) = bananas.itemType else {
+            Issue.record("Expected BANANAS to be .byWeight"); return
+        }
+        #expect(abs(qty - 1.52) < 0.001)
+        #expect(unit == .lb)
+        #expect(bananas.unitPrice == Decimal(string: "0.49"))
+        #expect(bananas.lineTotal == Decimal(string: "0.74"))
+    }
+
     // MARK: - Inline weight (same-line format)
 
     @Test func inlineWeightOnSameLineExtracted() throws {
@@ -339,6 +353,26 @@ private extension ReceiptParserTests {
         SUBTOTAL 1.99
         TOTAL 1.99
         01/15/25 10:00
+        """
+    }
+
+    /// ALDI split-column with (G)/(T)/(N) weight annotation lines.
+    /// (G) = gross, (T) = tare, (N) = net — only (N) has useful weight+unitPrice.
+    var aldiNWeightColumn: String {
+        """
+        ALDI
+        Store #20
+        Your cashier today was Bob
+        262747 Bananas LRW
+        (G) 1.531b - (T) 0.011b
+        (N) 1.52 1b x 0.49/1b
+        VISA
+        **x1234
+        01/15/25 10:00
+        ++ APPROVED++
+        0.74 FB
+        SUBTOTAL 0.74
+        TOTAL $0.74
         """
     }
 

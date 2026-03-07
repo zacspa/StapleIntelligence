@@ -69,6 +69,10 @@ struct ReceiptParser {
     // e.g. "(T) 0.01" = tare weight, "(G) 1.53" = gross, "(N) 1.52" = net.
     // These match lineItemPattern (short label + decimal) and must be skipped explicitly.
     private static let tareAnnotationPattern = /^\([TGN]\)/
+    // (N) net weight line with unit price: "(N) 1.52 1b x 0.49/1b"
+    // Group 1: net qty, Group 2: unit, Group 3: unitPrice
+    private static let nWeightPattern =
+        /^\(N\)\s+(\d+[\.,]\d+)\s*(lb|oz|kg|1b|ib)\s+[xX]\s+(\d+[\.,]\d+)\s*\/?\s*(?:lb|oz|kg|1b|ib)/
 
     // MARK: - Section bounds
 
@@ -533,6 +537,17 @@ struct ReceiptParser {
                     pendingWeightQty = nil; pendingWeightUnit = nil
                     continue
                 }
+                // (N) net weight line: "(N) 1.52 1b x 0.49/1b" — the useful weight/price annotation
+                if let wm = try? Self.nWeightPattern.firstMatch(in: line) {
+                    let rawUnit = line.contains("lb") || line.contains("1b") ? "lb"
+                               : line.contains("oz") ? "oz" : "kg"
+                    names[names.count - 1].weightQty       = Double(normalize(String(wm.1)))
+                    names[names.count - 1].weightUnit      = WeightUnit(rawValue: rawUnit) ?? .lb
+                    names[names.count - 1].weightUnitPrice = Decimal(string: normalize(String(wm.3)),
+                                                                      locale: Locale(identifier: "en_US_POSIX"))
+                    pendingWeightQty = nil; pendingWeightUnit = nil
+                    continue
+                }
                 // Tare annotations, OCR noise, separators — silently dropped
             } else {
                 // Legacy blacklist approach (DEBUG only, for A/B comparison)
@@ -564,6 +579,15 @@ struct ReceiptParser {
                     continue
                 }
                 pendingWeightQty = nil; pendingWeightUnit = nil
+                if let wm = try? Self.nWeightPattern.firstMatch(in: line), !names.isEmpty {
+                    let rawUnit = line.contains("lb") || line.contains("1b") ? "lb"
+                               : line.contains("oz") ? "oz" : "kg"
+                    names[names.count - 1].weightQty       = Double(normalize(String(wm.1)))
+                    names[names.count - 1].weightUnit      = WeightUnit(rawValue: rawUnit) ?? .lb
+                    names[names.count - 1].weightUnitPrice = Decimal(string: normalize(String(wm.3)),
+                                                                      locale: Locale(identifier: "en_US_POSIX"))
+                    continue
+                }
                 if (try? Self.tareAnnotationPattern.firstMatch(in: line)) != nil { continue }
                 let alphaCount = line.filter { $0.isLetter }.count
                 guard alphaCount >= 4 else { continue }
@@ -767,6 +791,16 @@ struct ReceiptParser {
             }
             pendingWeightQty = nil; pendingWeightUnit = nil
 
+            // (N) net weight line: "(N) 1.52 1b x 0.49/1b" — attach weight/price to preceding item
+            if let wm = try? Self.nWeightPattern.firstMatch(in: line), !names.isEmpty {
+                let rawUnit = line.contains("lb") || line.contains("1b") ? "lb"
+                           : line.contains("oz") ? "oz" : "kg"
+                names[names.count - 1].weightQty       = Double(normalize(String(wm.1)))
+                names[names.count - 1].weightUnit      = WeightUnit(rawValue: rawUnit) ?? .lb
+                names[names.count - 1].weightUnitPrice = Decimal(string: normalize(String(wm.3)),
+                                                                  locale: Locale(identifier: "en_US_POSIX"))
+                continue
+            }
             // Skip tare/gross/net annotation lines — "(G) 1.531b - (T) 0.01lb", "(N) 1.52 1b x 0.49/1b"
             if (try? Self.tareAnnotationPattern.firstMatch(in: line)) != nil { continue }
 
