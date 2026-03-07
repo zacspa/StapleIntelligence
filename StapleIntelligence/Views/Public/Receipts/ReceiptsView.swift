@@ -112,6 +112,12 @@ struct ReceiptsView: View {
                 Text("\(receipt.merchant?.displayName ?? "Unknown Merchant") will be permanently deleted.")
             }
         }
+        .task {
+            // Prune on first appear. @Query results are synchronous so receipts is
+            // already populated here — safe to pass the full known-ID set immediately.
+            let knownIDs = Set(receipts.map(\.id))
+            await ReceiptPersistenceService.pruneOrphanedImages(knownIDs: knownIDs)
+        }
         .fullScreenCover(isPresented: $isShowingScanner) {
             ScannerView(
                 onScan: { images in

@@ -187,6 +187,27 @@ struct ReceiptPersistenceService {
         }.value
     }
 
+    /// Removes any `Documents/receipts/<UUID>` directories whose UUID is not in `knownIDs`.
+    /// Call on app launch with the full set of persisted receipt IDs to clean up orphaned
+    /// image directories left by deleted receipts or a wiped SwiftData store.
+    static func pruneOrphanedImages(knownIDs: Set<UUID>) async {
+        await Task.detached(priority: .utility) {
+            guard let docs = try? FileManager.default.url(
+                for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+            else { return }
+            let receiptsDir = docs.appendingPathComponent("receipts", isDirectory: true)
+            guard let contents = try? FileManager.default.contentsOfDirectory(
+                at: receiptsDir, includingPropertiesForKeys: nil)
+            else { return }
+            for dir in contents {
+                guard let id = UUID(uuidString: dir.lastPathComponent),
+                      !knownIDs.contains(id) else { continue }
+                try? FileManager.default.removeItem(at: dir)
+                ScanningLog.imgSave.log("pruned orphaned image dir: \(id.uuidString, privacy: .public)")
+            }
+        }.value
+    }
+
     /// Removes the image directory for a receipt. Call before deleting a Receipt from SwiftData.
     static func deleteImages(for receiptID: UUID) async {
         await Task.detached(priority: .utility) {
