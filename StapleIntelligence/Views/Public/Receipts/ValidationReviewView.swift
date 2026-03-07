@@ -53,7 +53,7 @@ struct ValidationReviewView: View {
             if currentIndex < total {
                 Text("Issue \(currentIndex + 1) of \(total)")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.Colors.secondary)
                     .padding(.top, 4)
 
                 IssueCardView(
@@ -69,7 +69,10 @@ struct ValidationReviewView: View {
                             // are no longer true (e.g. implausibleTaxRate after a totals fix).
                             var next = currentIndex + 1
                             while next < total && !isRelevant(sorted[next]) { next += 1 }
-                            withAnimation { currentIndex = next }
+                            let isLast = next >= total
+                            HapticFeedback.impact(isLast ? .medium : .light)
+                            if isLast { HapticFeedback.notification(.success) }
+                            withAnimation(AppTheme.Animation.slideStep) { currentIndex = next }
                         }
                     }
                 )
@@ -94,9 +97,13 @@ struct ValidationReviewView: View {
 
             Spacer()
         }
+        .background(AppTheme.Colors.base)
         .navigationTitle("Review Issues")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
@@ -264,13 +271,13 @@ private struct ProgressBar: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color(.systemFill))
+                RoundedRectangle(cornerRadius: AppTheme.Radius.xs)
+                    .fill(AppTheme.Colors.border)
                     .frame(height: 4)
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.accentColor)
+                RoundedRectangle(cornerRadius: AppTheme.Radius.xs)
+                    .fill(AppTheme.Colors.accent)
                     .frame(width: geo.size.width * progress, height: 4)
-                    .animation(.easeInOut(duration: 0.25), value: progress)
+                    .animation(AppTheme.Animation.easeOut, value: progress)
             }
         }
         .frame(height: 4)
@@ -315,10 +322,10 @@ private struct IssueCardView: View {
 
     private var iconColor: Color {
         switch issue.severity {
-        case .info:     return .blue
-        case .warning:  return .orange
-        case .error:    return .red
-        case .critical: return .red
+        case .info:     return AppTheme.Colors.accent
+        case .warning:  return AppTheme.Colors.caution
+        case .error:    return AppTheme.Colors.negative
+        case .critical: return AppTheme.Colors.negative
         }
     }
 
@@ -342,28 +349,33 @@ private struct IssueCardView: View {
     }
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: AppTheme.Spacing.xl) {
             Image(systemName: issue.iconName)
                 .font(.system(size: 48))
                 .foregroundStyle(iconColor)
-                .padding(.top, 8)
+                .padding(.top, AppTheme.Spacing.sm)
 
             instanceImageSection()
 
-            VStack(spacing: 8) {
+            VStack(spacing: AppTheme.Spacing.sm) {
                 Text(issue.title)
                     .font(.title3.weight(.semibold))
                     .multilineTextAlignment(.center)
                 Text(issue.detail)
                     .font(.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.Colors.secondary)
                     .multilineTextAlignment(.center)
             }
 
             resolutionControls()
         }
-        .padding()
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+        .padding(AppTheme.Spacing.lg)
+        .background(AppTheme.Colors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.Radius.xl)
+                .strokeBorder(AppTheme.Colors.border, lineWidth: 1)
+        )
     }
 
     @ViewBuilder
@@ -404,8 +416,8 @@ private struct IssueCardView: View {
             .resizable()
             .scaledToFit()
             .frame(maxWidth: .infinity, maxHeight: 60)
-            .background(Color(.secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .background(AppTheme.Colors.surfaceAlt)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.sm))
             .overlay(alignment: .bottomTrailing) {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
                     .font(.caption2)
@@ -421,17 +433,13 @@ private struct IssueCardView: View {
     private func resolutionControls() -> some View {
         switch issue.kind {
         case .noItemsParsed, .globalConfidenceCritical:
-            VStack(spacing: 12) {
+            VStack(spacing: AppTheme.Spacing.md) {
                 Button("Rescan Receipt") { onNext(.rescan) }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(PrimaryButtonStyle())
                 Button(isLastInstance ? "Accept Anyway" : "Next →") {
                     if isLastInstance { onNext(.accepted) } else { instanceIndex += 1 }
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
+                .buttonStyle(SecondaryButtonStyle())
             }
 
         case .reconciliationFailed, .totalsMismatch:
@@ -441,76 +449,55 @@ private struct IssueCardView: View {
             skuPriceConflictControls()
 
         case .missingMerchant:
-            VStack(spacing: 12) {
+            VStack(spacing: AppTheme.Spacing.md) {
                 TextField("Store name", text: $merchantInput)
                     .textFieldStyle(.roundedBorder)
                 Button("Apply & Continue") { onNext(.merchantUpdated(merchantInput)) }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(PrimaryButtonStyle())
                 Button("Skip") { onNext(.accepted) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(SecondaryButtonStyle())
             }
 
         case .missingDate:
-            VStack(spacing: 12) {
+            VStack(spacing: AppTheme.Spacing.md) {
                 DatePicker("Purchase date", selection: $dateInput, displayedComponents: .date)
                     .labelsHidden()
                 Button("Apply & Continue") { onNext(.dateUpdated(dateInput)) }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(PrimaryButtonStyle())
                 Button("Skip") { onNext(.accepted) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(SecondaryButtonStyle())
             }
 
         case .implausibleTaxRate:
-            VStack(spacing: 12) {
+            VStack(spacing: AppTheme.Spacing.md) {
                 Text("Detected rate: \(taxRateText)")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.Colors.secondary)
                 Button("Accept Rate") { onNext(.accepted) }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(PrimaryButtonStyle())
                 Button("Rescan") { onNext(.rescan) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(SecondaryButtonStyle())
             }
 
         case .duplicateItems:
-            VStack(spacing: 12) {
+            VStack(spacing: AppTheme.Spacing.md) {
                 Button(isLastInstance ? "These Look Correct" : "Next →") {
                     if isLastInstance { onNext(.accepted) } else { instanceIndex += 1 }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
+                .buttonStyle(PrimaryButtonStyle())
                 Button("Rescan") { onNext(.rescan) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(SecondaryButtonStyle())
             }
 
         case .lowConfidenceItems, .itemsWithZeroPrice, .itemNamesAllDigits,
              .itemNamesTooShort, .itemNamesNonAlpha:
-            VStack(spacing: 12) {
+            VStack(spacing: AppTheme.Spacing.md) {
                 Button(isLastInstance ? "Accept" : "Next →") {
                     if isLastInstance { onNext(.accepted) } else { instanceIndex += 1 }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
+                .buttonStyle(PrimaryButtonStyle())
                 Button("Rescan") { onNext(.rescan) }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(SecondaryButtonStyle())
             }
         }
     }
@@ -579,14 +566,10 @@ private struct IssueCardView: View {
                 }
             }
             .disabled(parsedInput == nil)
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .frame(maxWidth: .infinity)
+            .buttonStyle(PrimaryButtonStyle())
 
             Button("Rescan") { onNext(.rescan) }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
+                .buttonStyle(SecondaryButtonStyle())
         }
     }
 
@@ -645,7 +628,7 @@ private struct IssueCardView: View {
                     .font(.subheadline)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(AppTheme.Colors.accent)
 
             Divider()
 
@@ -668,15 +651,11 @@ private struct IssueCardView: View {
                     onNext(.totalsUpdated(subtotal: parsedSubtotal, tax: totalTax, total: total))
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .frame(maxWidth: .infinity)
             .disabled(computedTotal == nil)
+            .buttonStyle(PrimaryButtonStyle())
 
             Button("Rescan Receipt") { onNext(.rescan) }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .frame(maxWidth: .infinity)
+                .buttonStyle(SecondaryButtonStyle())
         }
     }
 }
@@ -790,7 +769,7 @@ private struct FinalCardView: View {
     }
 
     private var summaryColor: Color {
-        result.preferRescan ? .orange : .green
+        result.preferRescan ? AppTheme.Colors.caution : AppTheme.Colors.positive
     }
 
     private var summaryMessage: String {
@@ -802,47 +781,42 @@ private struct FinalCardView: View {
     }
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: AppTheme.Spacing.xl) {
             Image(systemName: summaryIcon)
                 .font(.system(size: 48))
                 .foregroundStyle(summaryColor)
-                .padding(.top, 8)
+                .padding(.top, AppTheme.Spacing.sm)
 
-            VStack(spacing: 8) {
+            VStack(spacing: AppTheme.Spacing.sm) {
                 Text("Review Complete")
                     .font(.title3.weight(.semibold))
                     .multilineTextAlignment(.center)
                 Text(summaryMessage)
                     .font(.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppTheme.Colors.secondary)
                     .multilineTextAlignment(.center)
             }
 
-            VStack(spacing: 12) {
+            VStack(spacing: AppTheme.Spacing.md) {
                 if result.preferRescan {
                     Button("Rescan Receipt", action: onRescan)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .frame(maxWidth: .infinity)
-
+                        .buttonStyle(PrimaryButtonStyle())
                     Button("Save Anyway", action: onSaveAnyway)
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                        .frame(maxWidth: .infinity)
+                        .buttonStyle(SecondaryButtonStyle())
                 } else {
                     Button("Save Anyway", action: onSaveAnyway)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .frame(maxWidth: .infinity)
-
+                        .buttonStyle(PrimaryButtonStyle())
                     Button("Rescan Receipt", action: onRescan)
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                        .frame(maxWidth: .infinity)
+                        .buttonStyle(SecondaryButtonStyle())
                 }
             }
         }
-        .padding()
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+        .padding(AppTheme.Spacing.lg)
+        .background(AppTheme.Colors.surface)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.Radius.xl)
+                .strokeBorder(AppTheme.Colors.border, lineWidth: 1)
+        )
     }
 }

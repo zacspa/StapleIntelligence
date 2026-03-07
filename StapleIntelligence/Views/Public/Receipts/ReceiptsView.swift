@@ -40,16 +40,28 @@ struct ReceiptsView: View {
                         NavigationLink(value: receipt) {
                             ReceiptRow(receipt: receipt)
                         }
+                        .listRowBackground(AppTheme.Colors.surface)
                         .simultaneousGesture(LongPressGesture().onEnded { _ in
+                            HapticFeedback.impact(.heavy)
                             receiptToDelete = receipt
                         })
                     }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .background(AppTheme.Colors.base)
+                    .animation(AppTheme.Animation.springList, value: receipts.count)
                     .navigationDestination(for: Receipt.self) { receipt in
                         ReceiptEditView(receipt: receipt)
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppTheme.Colors.base)
             .navigationTitle("Receipts")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -62,17 +74,18 @@ struct ReceiptsView: View {
             }
             .overlay {
                 if isProcessing {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                        Text("Processing receipt…")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                    FrostedOverlay {
+                        VStack(spacing: AppTheme.Spacing.md) {
+                            ProgressView()
+                            Text("Processing receipt…")
+                                .font(.subheadline)
+                                .foregroundStyle(AppTheme.Colors.secondary)
+                        }
                     }
-                    .padding(24)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                 }
             }
         }
+        .background(AppTheme.Colors.base)
         .alert("Delete Receipt?", isPresented: Binding(
             get: { receiptToDelete != nil },
             set: { if !$0 { receiptToDelete = nil } }

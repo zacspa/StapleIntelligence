@@ -62,8 +62,11 @@ struct InsightsView: View {
                             }
                             .pickerStyle(.segmented)
                             .padding()
+                            .onChange(of: selectedRange) {
+                                HapticFeedback.impact(.light)
+                            }
 
-                            VStack(spacing: 24) {
+                            VStack(spacing: AppTheme.Spacing.xl) {
                                 SpendingTrendChart(data: trendData)
                                 TopItemsSection(items: topItems, onSelect: { selectedItem = $0 })
                                 if !priceMoversData.isEmpty {
@@ -77,7 +80,13 @@ struct InsightsView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppTheme.Colors.base)
             .navigationTitle("Insights")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .task(id: receipts.count * 31 + selectedRange.hashValue) {
                 recompute()
             }
@@ -85,6 +94,7 @@ struct InsightsView: View {
                 PriceHistorySheet(item: item, range: selectedRange.dateInterval, engine: engine)
             }
         }
+        .background(AppTheme.Colors.base)
     }
 
     private func recompute() {
@@ -100,32 +110,34 @@ private struct SpendingTrendChart: View {
     let data: [DateBucketTotal]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Spending Trend")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Chart(data) { bucket in
-                BarMark(
-                    x: .value("Month", bucket.date, unit: .month),
-                    y: .value("$", NSDecimalNumber(decimal: bucket.total).doubleValue)
-                )
-                .foregroundStyle(Color.accentColor)
-            }
-            .chartXAxis {
-                AxisMarks(values: .stride(by: .month)) { value in
-                    if let date = value.as(Date.self) {
-                        AxisValueLabel {
-                            Text(date, format: .dateTime.month(.abbreviated))
-                                .font(.caption2)
+        AppCard {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+                SectionHeader(title: "Spending Trend")
+                Chart(data) { bucket in
+                    BarMark(
+                        x: .value("Month", bucket.date, unit: .month),
+                        y: .value("$", NSDecimalNumber(decimal: bucket.total).doubleValue)
+                    )
+                    .foregroundStyle(AppTheme.Colors.accent)
+                    .cornerRadius(AppTheme.Radius.xs)
+                }
+                .chartYAxis(.hidden)
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .month)) { value in
+                        if let date = value.as(Date.self) {
+                            AxisValueLabel {
+                                Text(date, format: .dateTime.month(.abbreviated))
+                                    .font(.caption2)
+                            }
+                            .foregroundStyle(AppTheme.Colors.secondary)
                         }
                     }
                 }
+                .frame(height: 160)
+                .shadow(color: AppTheme.Colors.accent.opacity(0.45), radius: 6)
+                .shadow(color: AppTheme.Colors.accent.opacity(0.20), radius: 16)
             }
-            .frame(height: 160)
         }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -134,41 +146,40 @@ private struct TopItemsSection: View {
     let onSelect: (ItemSpend) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Top Items")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                Button {
-                    onSelect(item)
-                } label: {
-                    HStack {
-                        Text("\(index + 1)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 24, alignment: .trailing)
-                        Text(item.canonicalName)
-                            .font(.body)
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(item.total, format: .currency(code: "USD"))
-                                .font(.body.monospacedDigit())
+        AppCard {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+                SectionHeader(title: "Top Items")
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    Button {
+                        onSelect(item)
+                    } label: {
+                        HStack {
+                            Text("\(index + 1)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(AppTheme.Colors.secondary)
+                                .frame(width: 24, alignment: .trailing)
+                            Text(item.canonicalName)
+                                .font(.body)
                                 .foregroundStyle(.primary)
-                            Text("\(item.purchaseCount)x")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(item.total, format: .currency(code: "USD"))
+                                    .font(AppTheme.Typography.bodyMono)
+                                    .foregroundStyle(.primary)
+                                Text("\(item.purchaseCount)x")
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.Colors.secondary)
+                            }
                         }
                     }
-                }
-                if index < items.count - 1 {
-                    Divider().padding(.leading, 32)
+                    if index < items.count - 1 {
+                        Divider()
+                            .background(AppTheme.Colors.border)
+                            .padding(.leading, 32)
+                    }
                 }
             }
         }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -176,26 +187,24 @@ private struct PriceMoversSection: View {
     let movers: [PriceMover]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Price Changes (last 4 weeks)")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            ForEach(movers) { mover in
-                HStack {
-                    Text(mover.canonicalName)
-                        .font(.body)
-                    Spacer()
-                    let isUp = mover.delta >= .zero
-                    let absVal = mover.delta < .zero ? -mover.delta : mover.delta
-                    Text("\(isUp ? "+" : "-")\(absVal, format: .currency(code: "USD"))")
-                        .font(.body.monospacedDigit())
-                        .foregroundStyle(isUp ? .red : .green)
+        AppCard {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+                SectionHeader(title: "Price Changes (last 4 weeks)")
+                ForEach(movers) { mover in
+                    HStack {
+                        Text(mover.canonicalName)
+                            .font(.body)
+                        Spacer()
+                        let deltaPct: Double = {
+                            guard mover.previousAvg > .zero else { return 0 }
+                            return NSDecimalNumber(decimal: mover.delta / mover.previousAvg).doubleValue
+                        }()
+                        DeltaBadge(pct: deltaPct)
+                    }
                 }
             }
         }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .glowCaution()
     }
 }
 
@@ -204,35 +213,33 @@ private struct MerchantBreakdownSection: View {
 
     var body: some View {
         if !merchants.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("By Merchant")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                ForEach(merchants) { merchant in
-                    VStack(spacing: 4) {
-                        HStack {
-                            Text(merchant.displayName)
-                            Spacer()
-                            Text(merchant.total, format: .currency(code: "USD"))
-                                .font(.body.monospacedDigit())
+            AppCard {
+                VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                    SectionHeader(title: "By Merchant")
+                    ForEach(merchants) { merchant in
+                        VStack(spacing: AppTheme.Spacing.xs) {
+                            HStack {
+                                Text(merchant.displayName)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Text(merchant.total, format: .currency(code: "USD"))
+                                    .font(AppTheme.Typography.bodyMono)
+                            }
+                            GeometryReader { geo in
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(AppTheme.Colors.accent.opacity(0.25))
+                                    .frame(width: geo.size.width, height: 4)
+                                    .overlay(alignment: .leading) {
+                                        RoundedRectangle(cornerRadius: 2)
+                                            .fill(AppTheme.Colors.accent)
+                                            .frame(width: geo.size.width * merchant.fraction)
+                                    }
+                            }
+                            .frame(height: 4)
                         }
-                        GeometryReader { geo in
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(Color.accentColor.opacity(0.25))
-                                .frame(width: geo.size.width, height: 4)
-                                .overlay(alignment: .leading) {
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .fill(Color.accentColor)
-                                        .frame(width: geo.size.width * merchant.fraction)
-                                }
-                        }
-                        .frame(height: 4)
                     }
                 }
             }
-            .padding()
-            .background(Color(.secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }
 }
@@ -256,23 +263,29 @@ private struct PriceHistorySheet: View {
                             x: .value("Date", point.date),
                             y: .value("Price", NSDecimalNumber(decimal: point.unitPrice).doubleValue)
                         )
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(AppTheme.Colors.accent)
                         PointMark(
                             x: .value("Date", point.date),
                             y: .value("Price", NSDecimalNumber(decimal: point.unitPrice).doubleValue)
                         )
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(AppTheme.Colors.accent)
                     }
                     .chartYAxis {
                         AxisMarks(format: .currency(code: "USD"))
                     }
                     .frame(height: 200)
+                    .shadow(color: AppTheme.Colors.accent.opacity(0.45), radius: 6)
+                    .shadow(color: AppTheme.Colors.accent.opacity(0.20), radius: 16)
                     .padding()
                 }
                 Spacer()
             }
+            .background(AppTheme.Colors.base)
             .navigationTitle(item.canonicalName)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }

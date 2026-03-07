@@ -60,12 +60,12 @@ struct ItemDetailView: View {
                 LabeledContent("SKU", value: item.sku ?? "—")
                 LabeledContent("Confidence") {
                     Text("\(Int(item.confidence * 100))%")
-                        .foregroundStyle(item.confidence < 0.6 ? .orange : .primary)
+                        .foregroundStyle(item.confidence < 0.6 ? AppTheme.Colors.caution : .primary)
                         .monospacedDigit()
                 }
                 if item.isDiscount {
                     LabeledContent("Type", value: "Discount")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(AppTheme.Colors.negative)
                 }
             }
 
@@ -82,9 +82,14 @@ struct ItemDetailView: View {
                 )
             }
         }
-        .foregroundStyle(item.isDiscount ? .red : .primary)
+        .scrollContentBackground(.hidden)
+        .background(AppTheme.Colors.base)
+        .foregroundStyle(item.isDiscount ? AppTheme.Colors.negative : .primary)
         .navigationTitle(item.canonicalName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") { save() }
