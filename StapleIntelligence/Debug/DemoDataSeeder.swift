@@ -58,11 +58,11 @@ struct DemoDataSeeder {
     }
 
     private static func aldiBig(_ merchant: Merchant, _ d: Date, new: Bool) -> Receipt {
-        let cheddar: Decimal  = new ? "2.29" : "1.79"
-        let milk: Decimal     = new ? "2.99" : "2.25"
-        let eggs: Decimal     = new ? "3.49" : "1.97"
-        let creamer: Decimal  = new ? "2.99" : "2.39"
-        let tomatoes: Decimal = new ? "2.49" : "1.65"
+        let cheddar  = new ? "2.29" : "1.79"
+        let milk     = new ? "2.99" : "2.25"
+        let eggs     = new ? "3.49" : "1.97"
+        let creamer  = new ? "2.99" : "2.39"
+        let tomatoes = new ? "2.49" : "1.65"
 
         let items = makeItems([
             ("Sharp Cheddar",       cheddar,  "382439"),
@@ -96,10 +96,10 @@ struct DemoDataSeeder {
     }
 
     private static func aldiSmall(_ merchant: Merchant, _ d: Date, new: Bool) -> Receipt {
-        let cheddar: Decimal  = new ? "2.29" : "1.79"
-        let milk: Decimal     = new ? "2.99" : "2.25"
-        let eggs: Decimal     = new ? "3.49" : "1.97"
-        let tomatoes: Decimal = new ? "2.49" : "1.65"
+        let cheddar  = new ? "2.29" : "1.79"
+        let milk     = new ? "2.99" : "2.25"
+        let eggs     = new ? "3.49" : "1.97"
+        let tomatoes = new ? "2.49" : "1.65"
 
         let items = makeItems([
             ("Sharp Cheddar",      cheddar,  "382439"),
@@ -171,9 +171,14 @@ struct DemoDataSeeder {
 
     // MARK: - Helpers
 
-    private static func makeItems(_ tuples: [(String, Decimal, String?)]) -> [LineItem] {
+    private static func dec(_ s: String) -> Decimal {
+        Decimal(string: s, locale: Locale(identifier: "en_US_POSIX")) ?? .zero
+    }
+
+    private static func makeItems(_ tuples: [(String, String, String?)]) -> [LineItem] {
         tuples.enumerated().map { index, t in
-            let (name, price, sku) = t
+            let (name, priceStr, sku) = t
+            let price = dec(priceStr)
             return LineItem(
                 rawName: name,
                 canonicalName: name,
@@ -189,15 +194,16 @@ struct DemoDataSeeder {
     }
 
     private static func makeReceipt(merchant: Merchant, date: Date, items: [LineItem],
-                                    taxAmount: Decimal) -> Receipt {
+                                    taxAmount: String) -> Receipt {
+        let tax      = dec(taxAmount)
         let subtotal = items.reduce(Decimal.zero) { $0 + $1.lineTotal }
-        let total    = subtotal + taxAmount
+        let total    = subtotal + tax
         return Receipt(
             merchant: merchant,
             purchaseDate: date,
             lineItems: items,
             subtotal: subtotal,
-            tax: taxAmount,
+            tax: tax,
             total: total,
             parseConfidence: 0.94,
             reconciliationStatus: .reconciled
