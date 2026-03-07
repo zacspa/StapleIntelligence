@@ -9,6 +9,9 @@ import OSLog
 
 // MARK: - Loggers
 
+/// Shared `Logger` instances for the receipt processing pipeline.
+/// Each category maps to a pipeline stage: `scan` → `ocr` → `parse` → `db_save`.
+/// All log messages use `.public` privacy — no receipt text is ever emitted.
 enum ScanningLog {
     static let subsystem = "com.zsparks.StapleIntelligence"
     static let scan      = Logger(subsystem: subsystem, category: "scan")

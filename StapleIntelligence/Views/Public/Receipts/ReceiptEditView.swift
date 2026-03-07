@@ -9,7 +9,11 @@ import SwiftUI
 import SwiftData
 import OSLog
 
-/// Pushed onto the NavigationStack from ReceiptsView — edits a persisted Receipt in-place.
+/// Pushed onto the `NavigationStack` from `ReceiptsView` to edit a persisted `Receipt`.
+///
+/// Merchant name edits use a deduplication lookup: the app fetches by `normalizedName`
+/// and reuses an existing `Merchant` if found, creating a new one only on a miss.
+/// Line items link to `ItemDetailView` via a `UUID`-based `navigationDestination`.
 struct ReceiptEditView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss

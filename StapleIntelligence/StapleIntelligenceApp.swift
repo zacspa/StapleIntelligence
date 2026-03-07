@@ -11,6 +11,19 @@ import UIKit
 
 @main
 struct StapleIntelligenceApp: App {
+    /// UIAppearance configuration must run before any window is created, making `App.init()`
+    /// the correct place. Three UIKit control classes are configured here:
+    ///
+    /// - **UITabBar**: frosted blur background + explicit Neon Mint selected-item tint.
+    ///   `configureWithTransparentBackground()` resets item colors to defaults, so all
+    ///   three layout appearances (stacked, inline, compact) must be set explicitly.
+    ///
+    /// - **UINavigationBar**: frosted dark background with white title text across all
+    ///   four appearance states (standard, scrollEdge, compact, compactScrollEdge).
+    ///   Setting only `standardAppearance` leaves `scrollEdgeAppearance` using the default
+    ///   opaque background, which makes titles invisible at position 0 on dark screens.
+    ///
+    /// - **UISegmentedControl**: accent-tinted selected segment.
     init() {
         // Tab bar — ultraThinMaterialDark frosted blur
         let tabAppearance = UITabBarAppearance()

@@ -8,6 +8,11 @@
 import Foundation
 import SwiftData
 
+/// Production implementation of `InsightsEngineProtocol`.
+///
+/// All queries fetch the entire `Receipt` table and filter in memory. This is acceptable
+/// for the MVP's expected dataset (hundreds of receipts). If the dataset grows into the
+/// thousands, replace `receiptsInRange` with a predicated `FetchDescriptor`.
 struct InsightsEngine: InsightsEngineProtocol {
     let modelContext: ModelContext
 
@@ -88,6 +93,10 @@ struct InsightsEngine: InsightsEngineProtocol {
     }
 
     func priceMovers(range: DateInterval) throws -> [PriceMover] {
+        // "Current" = last 4 weeks; "previous" = the 4 weeks before that.
+        // The `range` parameter is intentionally ignored here — priceMovers always
+        // uses a fixed rolling 4-week vs prior 4-week comparison regardless of the
+        // UI's selected range.
         let now = Date()
         let fourWeeks: TimeInterval = 4 * 7 * 24 * 3600
         let currentWindow = DateInterval(start: now.addingTimeInterval(-fourWeeks), end: now)

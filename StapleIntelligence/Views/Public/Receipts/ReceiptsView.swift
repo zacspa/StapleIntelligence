@@ -10,6 +10,14 @@ import SwiftData
 import UIKit
 import OSLog
 
+/// Tab root view for the Receipts tab.
+///
+/// Hosts the scan pipeline: user taps +, `ScannerView` captures images,
+/// `ReceiptOCRService` + `ReceiptParser` run concurrently, the transient
+/// `ParsedReceipt` is shown in `ReceiptReviewView`, and on save
+/// `ReceiptPersistenceService` writes the receipt to SwiftData.
+///
+/// Long-pressing a receipt row triggers a delete confirmation alert.
 struct ReceiptsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Receipt.createdAt, order: .reverse) private var receipts: [Receipt]

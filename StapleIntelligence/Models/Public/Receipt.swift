@@ -8,6 +8,17 @@
 import Foundation
 import SwiftData
 
+/// Persisted record of a single scanned receipt.
+///
+/// **Decimal-as-String storage**: SwiftData cannot store `Decimal` natively, so `subtotal`,
+/// `tax`, and `total` are backed by private `String?` properties (`*Storage`). The public
+/// computed properties convert on access using `en_US_POSIX` locale to guarantee `.`
+/// as the decimal separator regardless of device locale.
+///
+/// **URL storage**: `imageURLs` is similarly backed by `[String]` because SwiftData
+/// cannot persist `URL` arrays.
+///
+/// `lineItems` are cascade-deleted when the receipt is deleted.
 @Model
 final class Receipt {
     var id: UUID

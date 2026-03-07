@@ -10,6 +10,11 @@ import CoreGraphics
 
 // MARK: - OCR line type
 
+/// A single recognized text observation from VisionKit.
+///
+/// `boundingBox` uses Vision's bottom-left coordinate system (normalized 0–1).
+/// It is `nil` for pages beyond the first because multi-page crop coordinates
+/// would silently reference the wrong image.
 struct OCRLine: Sendable {
     let text: String
     let confidence: Double
@@ -18,6 +23,8 @@ struct OCRLine: Sendable {
 
 // MARK: - Transient parsed value types
 
+/// Transient (non-persisted) representation of one line item produced by `ReceiptParser`.
+/// Converted to a `LineItem` SwiftData model by `ReceiptPersistenceService` after review.
 struct ParsedLineItem {
     let rawName: String
     let canonicalName: String
@@ -36,6 +43,8 @@ struct ParsedLineItem {
     }
 }
 
+/// Transient (non-persisted) result of a full `ReceiptParser` run.
+/// `Identifiable` so it can drive a `.sheet(item:)` in `ReceiptsView`.
 struct ParsedReceipt: Identifiable {
     let id: UUID = UUID()
     let rawOcrText: String
@@ -51,6 +60,8 @@ struct ParsedReceipt: Identifiable {
 
 // MARK: - Error types
 
+/// Camera/document-scanning errors (code range 1000–1099).
+/// `recoverable` indicates whether the user can retry without changing settings.
 enum ScanError: Error {
     case userCancelled           // 1001
     case cameraPermissionDenied  // 1002
@@ -76,6 +87,7 @@ enum ScanError: Error {
     }
 }
 
+/// Vision OCR errors (code range 2000–2099).
 enum OCRError: Error {
     case noTextFound                         // 2001
     case belowConfidenceThreshold(Double)    // 2002
@@ -98,6 +110,7 @@ enum OCRError: Error {
     }
 }
 
+/// Receipt-parsing errors (code range 3000–3099). Always recoverable — the user can rescan.
 enum ParseError: Error {
     case emptyInput                       // 3001
     case noLineItemsFound(lineCount: Int) // 3002
@@ -112,6 +125,7 @@ enum ParseError: Error {
     var recoverable: Bool { true }
 }
 
+/// SwiftData / image persistence errors (code range 4000–4099). Never recoverable.
 enum PersistenceError: Error {
     case imageWriteFailed(pageIndex: Int, underlyingCode: Int)     // 4001
     case modelContextSaveFailed(underlyingCode: Int)               // 4002

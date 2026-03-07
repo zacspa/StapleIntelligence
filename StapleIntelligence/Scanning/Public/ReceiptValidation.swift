@@ -10,6 +10,9 @@ import CoreGraphics
 
 // MARK: - Severity
 
+/// Numeric weight assigned to each issue. The raw values are additive:
+/// a single `error` (4) alone triggers review; two `warning`s (2+2=4) do the same.
+/// `critical` (8) alone sets `preferRescan`. See `ReceiptValidationResult`.
 enum ValidationSeverity: Int, Comparable {
     case info = 1, warning = 2, error = 4, critical = 8
 
@@ -157,6 +160,13 @@ struct ReceiptValidationIssue {
 
 // MARK: - Result
 
+/// Aggregated outcome of a `ReceiptValidator` run.
+///
+/// **Review thresholds** (based on additive severity weights):
+/// - `requiresReview` (weight ≥ 4): show `ValidationReviewView` before saving.
+///   Triggered by any single `error`/`critical`, or two or more `warning`s.
+/// - `preferRescan` (critical present, OR weight ≥ 12): the "Rescan" action is
+///   shown as the primary CTA in `ValidationReviewView`.
 struct ReceiptValidationResult {
     let issues: [ReceiptValidationIssue]
 

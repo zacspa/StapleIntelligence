@@ -10,6 +10,7 @@ import UIKit
 
 // MARK: - Card resolution
 
+/// The user's action on a single validation issue card.
 private enum CardResolution {
     case accepted
     case rescan
@@ -21,6 +22,17 @@ private enum CardResolution {
 
 // MARK: - Root view
 
+/// Step-by-step issue review flow shown when `ReceiptValidationResult.requiresReview` is true.
+///
+/// Issues are presented as swipeable cards in severity order (critical first). After all cards
+/// are dismissed, a `FinalCardView` summarizes the outcome and offers "Save Anyway" or "Rescan".
+///
+/// The view maintains a `resolvedParsed` copy of the receipt that is mutated as the user resolves
+/// issues (e.g. typing a corrected merchant name). The final resolved receipt is passed to
+/// `onSaveAnyway` when the user saves.
+///
+/// Receipt image crops are pre-rendered once in a `.task` and cached in `cropCache` to avoid
+/// re-cropping on every render pass.
 struct ValidationReviewView: View {
     let result: ReceiptValidationResult
     let images: [UIImage]

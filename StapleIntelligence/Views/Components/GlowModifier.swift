@@ -5,6 +5,13 @@
 
 import SwiftUI
 
+/// Applies a double-shadow bloom effect to any view.
+///
+/// Two `.shadow()` calls are layered — a tight inner glow (`radius1`) for the
+/// bright core and a diffuse outer bloom (`radius2`) — to simulate a neon
+/// light effect on dark backgrounds without Core Image filters.
+///
+/// Use `.glowAccent()` for Neon Mint glow and `.glowCaution()` for amber glow.
 struct GlowModifier: ViewModifier {
     var color: Color
     var radius1: CGFloat

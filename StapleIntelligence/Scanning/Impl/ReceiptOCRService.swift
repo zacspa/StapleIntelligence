@@ -9,6 +9,16 @@ import UIKit
 import Vision
 import OSLog
 
+/// Runs on-device OCR on receipt images using the Vision framework.
+///
+/// **Concurrency model**: `recognizeText(in:)` is called from `@MainActor` but
+/// dispatches each page to a `Task.detached` with `.userInitiated` priority so
+/// Vision's synchronous `VNImageRequestHandler.perform` runs off the main thread.
+/// Pages are processed concurrently via `withThrowingTaskGroup` and reassembled
+/// in original page order before returning.
+///
+/// Throws `OCRError.belowConfidenceThreshold` if the average confidence across
+/// all pages is below `minimumConfidenceThreshold` (0.4).
 struct ReceiptOCRService {
 
     private static let minimumConfidenceThreshold = 0.4

@@ -8,13 +8,26 @@
 import Foundation
 import SwiftData
 
+/// Unit of measure for weight-priced items (e.g. deli, produce, bulk).
 enum WeightUnit: String, Codable { case lb, oz, kg }
 
+/// Describes how a line item is sold and quantified.
 enum ItemType {
+    /// Sold by unit count (the typical case). `count` is usually 1.
     case byCount(count: Int)
+    /// Sold by weight with a per-unit price (e.g. "$3.49/lb × 0.82 lb").
     case byWeight(quantity: Double, unit: WeightUnit)
 }
 
+/// Persisted line item from a receipt.
+///
+/// **ItemType backing storage**: SwiftData cannot store enums with associated values.
+/// `ItemType` is decomposed into four flat stored properties (`itemTypeModeRaw`,
+/// `itemTypeCount`, `itemTypeWeightQuantity`, `itemTypeWeightUnit`). The `itemType`
+/// computed property assembles and disassembles them transparently.
+///
+/// **Decimal-as-String storage**: `unitPrice` and `lineTotal` use the same
+/// `String`-backed pattern as `Receipt` to preserve exact decimal values.
 @Model
 final class LineItem {
     var id: UUID

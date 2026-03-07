@@ -5,6 +5,8 @@
 
 import SwiftUI
 
+/// Full-width Neon Mint filled button. Use for primary actions (e.g. "Save Anyway").
+/// Label text is rendered in `Colors.base` (dark) for contrast against the mint fill.
 struct PrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -22,6 +24,8 @@ struct PrimaryButtonStyle: ButtonStyle {
     }
 }
 
+/// Full-width secondary button with accent-tinted background and hairline border.
+/// Use for lower-priority actions (e.g. "Rescan").
 struct SecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

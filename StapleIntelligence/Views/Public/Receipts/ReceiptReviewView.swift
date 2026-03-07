@@ -9,6 +9,13 @@ import SwiftUI
 import UIKit
 internal import os
 
+/// Sheet shown after OCR+parse, letting the user review and confirm the parsed receipt
+/// before it is persisted.
+///
+/// On "Save": runs `ReceiptValidator`. If `requiresReview`, pushes `ValidationReviewView`
+/// via a `navigationDestination`; otherwise calls `onSave` directly with a haptic.
+/// The view is embedded inside its own `NavigationStack` so the validation destination
+/// can be pushed without affecting the parent stack.
 struct ReceiptReviewView: View {
     let parsed: ParsedReceipt
     let images: [UIImage]

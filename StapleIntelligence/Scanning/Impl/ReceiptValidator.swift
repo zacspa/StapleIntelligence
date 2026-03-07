@@ -9,6 +9,17 @@ import Foundation
 import CoreGraphics
 import OSLog
 
+/// Runs a battery of checks on a `ParsedReceipt` and returns a `ReceiptValidationResult`.
+///
+/// **Checks are split into four tiers** (critical → error → warning → info) with
+/// additive severity weights. Whether to run most checks is user-configurable via
+/// `UserDefaults` keys mirrored in `SettingsView`. Two checks always run regardless
+/// of settings: `checkNoItems` and `checkGlobalConfidence`.
+///
+/// **Bounding box usage**: many checks attach Vision-coordinate `CGRect` instances to
+/// their issue instances. These are passed through to `ValidationReviewView`, which
+/// crops the relevant receipt region and shows it as a visual card alongside the
+/// issue description.
 struct ReceiptValidator {
 
     private let log = ScanningLog.validation

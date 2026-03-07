@@ -5,7 +5,16 @@
 
 import SwiftUI
 
+/// Central design-token namespace for the app.
+///
+/// All colors, spacing, radii, typography, animations, and glow parameters are defined
+/// here so individual views never hard-code raw values. Tokens are consumed directly
+/// via `AppTheme.Colors.accent`, `AppTheme.Spacing.md`, etc.
+///
+/// The app is dark-mode-first; `Colors.base` (#121212) is always the root background.
+/// Accent color is Neon Mint (#80FFD4) — used only for primary actions and active state.
 enum AppTheme {
+    /// Brand color palette. All views must use these tokens rather than system colors.
     enum Colors {
         static let base       = Color(hex: "121212")
         static let surface    = Color(hex: "1C1C1E")
@@ -20,6 +29,7 @@ enum AppTheme {
         static let tertiary   = Color(hex: "EBEBF5").opacity(0.30)
     }
 
+    /// 8-step spacing scale in points.
     enum Spacing {
         static let xxs: CGFloat = 2
         static let xs:  CGFloat = 4
@@ -30,6 +40,7 @@ enum AppTheme {
         static let xxl: CGFloat = 32
     }
 
+    /// Corner radius scale. Use `pill` (999) for capsule shapes.
     enum Radius {
         static let xs:   CGFloat = 4
         static let sm:   CGFloat = 6
@@ -49,6 +60,11 @@ enum AppTheme {
         static let badge:        Font = .caption.weight(.semibold)
     }
 
+    /// Curated spring and easing presets.
+    /// - `springList`: list insertions/deletions
+    /// - `springCard`: card entrance
+    /// - `slideStep`: validation step transitions
+    /// - `easeOut`: progress bars and simple fades
     enum Animation {
         static let springList = SwiftUI.Animation.spring(response: 0.38, dampingFraction: 0.72)
         static let springCard = SwiftUI.Animation.spring(response: 0.30, dampingFraction: 0.65)
@@ -56,6 +72,8 @@ enum AppTheme {
         static let easeOut    = SwiftUI.Animation.easeOut(duration: 0.25)
     }
 
+    /// Double-shadow bloom parameters. Each glow uses two layered `.shadow()` calls
+    /// (tight inner + diffuse outer) to simulate a neon bloom effect on dark backgrounds.
     enum Glow {
         static let accentRadius:   CGFloat = 6
         static let accentOpacity:  Double  = 0.45
@@ -67,6 +85,9 @@ enum AppTheme {
 }
 
 extension Color {
+    /// Creates a `Color` from a hex string without any SPM dependency.
+    /// Supports 3-char (`RGB`), 6-char (`RRGGBB`), and 8-char (`AARRGGBB`) formats.
+    /// Non-hex characters are stripped before parsing, so `#` prefixes are handled transparently.
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0

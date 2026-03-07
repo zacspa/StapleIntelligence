@@ -5,6 +5,8 @@
 
 import SwiftUI
 
+/// Standardized section label inside `AppCard` bodies.
+/// Uses `AppTheme.Typography.sectionLabel` (.subheadline) in `Colors.secondary`.
 struct SectionHeader: View {
     let title: String
 
