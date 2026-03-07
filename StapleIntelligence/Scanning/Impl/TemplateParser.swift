@@ -79,13 +79,15 @@ struct TemplateParser {
             extractDate(from: lines.map(\.text).joined(separator: " "))
         }
 
-        // Line items — pair names and prices by Y-midpoint proximity
+        // Line items — pair names, prices, and SKUs by Y-midpoint proximity
         let nameLines     = (labeledLines[.lineItemName]  ?? []).sorted { midY($0) > midY($1) }
         let priceLines    = (labeledLines[.lineItemPrice] ?? []).sorted { midY($0) > midY($1) }
         let discountLines = (labeledLines[.discount]      ?? []).sorted { midY($0) > midY($1) }
+        let skuLines      = (labeledLines[.sku]           ?? []).sorted { midY($0) > midY($1) }
         let lineItems = buildLineItems(nameLines: nameLines,
                                        priceLines: priceLines,
-                                       discountLines: discountLines)
+                                       discountLines: discountLines,
+                                       skuLines: skuLines)
 
         // Footer totals
         let subtotal = extractDecimal(from: labeledLines[.subtotal] ?? [])
@@ -128,9 +130,11 @@ struct TemplateParser {
     private func buildLineItems(
         nameLines: [OCRLine],
         priceLines: [OCRLine],
-        discountLines: [OCRLine]
+        discountLines: [OCRLine],
+        skuLines: [OCRLine]
     ) -> [ParsedLineItem] {
         var remaining = priceLines
+        var remainingSKUs = skuLines
         var items: [ParsedLineItem] = []
 
         for nameLine in nameLines {
@@ -146,6 +150,20 @@ struct TemplateParser {
                let price = parsePrice(from: priceLine.text)
             {
                 remaining.remove(at: idx)
+
+                // Pair with nearest SKU line if a .sku region was labeled; otherwise
+                // fall back to extracting a leading numeric token from the name itself.
+                let sku: String?
+                if let (skuIdx, skuLine) = remainingSKUs.enumerated()
+                    .min(by: { abs(midY($0.element) - yMid) < abs(midY($1.element) - yMid) })
+                {
+                    remainingSKUs.remove(at: skuIdx)
+                    sku = skuLine.text.trimmingCharacters(in: .whitespaces)
+                        .components(separatedBy: .whitespaces).first
+                } else {
+                    sku = ReceiptParser.extractSKU(from: raw)
+                }
+
                 items.append(ParsedLineItem(
                     rawName: raw,
                     canonicalName: canonical,
@@ -155,7 +173,7 @@ struct TemplateParser {
                     isDiscount: false,
                     confidence: nameLine.confidence,
                     taxCode: nil,
-                    sku: ReceiptParser.extractSKU(from: raw),
+                    sku: sku,
                     boundingBox: nameLine.boundingBox
                 ))
             }

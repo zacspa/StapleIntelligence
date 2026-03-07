@@ -18,6 +18,7 @@ enum ReceiptFieldLabel: String, Codable, CaseIterable {
     case tax
     case total
     case discount
+    case sku
     case ignore
 
     var displayName: String {
@@ -30,6 +31,7 @@ enum ReceiptFieldLabel: String, Codable, CaseIterable {
         case .tax:           return "Tax"
         case .total:         return "Total"
         case .discount:      return "Discount"
+        case .sku:           return "SKU"
         case .ignore:        return "Ignore"
         }
     }
@@ -44,6 +46,7 @@ enum ReceiptFieldLabel: String, Codable, CaseIterable {
         case .tax:           return "percent"
         case .total:         return "cart"
         case .discount:      return "minus.circle"
+        case .sku:           return "barcode"
         case .ignore:        return "xmark.circle"
         }
     }

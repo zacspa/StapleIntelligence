@@ -58,11 +58,11 @@ struct DemoDataSeeder {
     }
 
     private static func aldiBig(_ merchant: Merchant, _ d: Date, new: Bool) -> Receipt {
-        let cheddar: Decimal  = new ? "2.29" : "1.79"
-        let milk: Decimal     = new ? "2.99" : "2.25"
-        let eggs: Decimal     = new ? "3.49" : "1.97"
-        let creamer: Decimal  = new ? "2.99" : "2.39"
-        let tomatoes: Decimal = new ? "2.49" : "1.65"
+        let cheddar  = new ? "2.29" : "1.79"
+        let milk     = new ? "2.99" : "2.25"
+        let eggs     = new ? "3.49" : "1.97"
+        let creamer  = new ? "2.99" : "2.39"
+        let tomatoes = new ? "2.49" : "1.65"
 
         let items = makeItems([
             ("Sharp Cheddar",       cheddar,  "382439"),
@@ -92,14 +92,14 @@ struct DemoDataSeeder {
             ("Premium Napkins",     "2.29",   "343709"),
             ("Bath Tissue",         "8.99",   "530003"),
         ])
-        return makeReceipt(merchant: merchant, date: d, items: items, taxAmount: "1.42")
+        return makeReceipt(merchant: merchant, date: d, items: items, taxAmount: Decimal(string: "1.42")!)
     }
 
     private static func aldiSmall(_ merchant: Merchant, _ d: Date, new: Bool) -> Receipt {
-        let cheddar: Decimal  = new ? "2.29" : "1.79"
-        let milk: Decimal     = new ? "2.99" : "2.25"
-        let eggs: Decimal     = new ? "3.49" : "1.97"
-        let tomatoes: Decimal = new ? "2.49" : "1.65"
+        let cheddar  = new ? "2.29" : "1.79"
+        let milk     = new ? "2.99" : "2.25"
+        let eggs     = new ? "3.49" : "1.97"
+        let tomatoes = new ? "2.49" : "1.65"
 
         let items = makeItems([
             ("Sharp Cheddar",      cheddar,  "382439"),
@@ -112,7 +112,7 @@ struct DemoDataSeeder {
             ("Yellow Onions",      "1.59",   "341878"),
             ("Sour Cream",         "1.79",   "382931"),
         ])
-        return makeReceipt(merchant: merchant, date: d, items: items, taxAmount: "0")
+        return makeReceipt(merchant: merchant, date: d, items: items, taxAmount: Decimal(0))
     }
 
     // MARK: - Kroger (bi-weekly, 6 receipts)
@@ -141,7 +141,7 @@ struct DemoDataSeeder {
             ("Ground Turkey",    "7.49",  nil),
             ("Frozen Peas",      "1.99",  nil),
         ])
-        return makeReceipt(merchant: merchant, date: d, items: items, taxAmount: "0.55")
+        return makeReceipt(merchant: merchant, date: d, items: items, taxAmount: Decimal(string: "0.55")!)
     }
 
     // MARK: - Whole Foods (monthly, 3 receipts)
@@ -166,14 +166,15 @@ struct DemoDataSeeder {
             ("Grass Fed Butter",    "7.99",  nil),
             ("Oat Milk",            "4.49",  nil),
         ])
-        return makeReceipt(merchant: merchant, date: d, items: items, taxAmount: "0.81")
+        return makeReceipt(merchant: merchant, date: d, items: items, taxAmount: Decimal(string: "0.81")!)
     }
 
     // MARK: - Helpers
 
-    private static func makeItems(_ tuples: [(String, Decimal, String?)]) -> [LineItem] {
+    private static func makeItems(_ tuples: [(String, String, String?)]) -> [LineItem] {
         tuples.enumerated().map { index, t in
-            let (name, price, sku) = t
+            let (name, priceStr, sku) = t
+            let price = Decimal(string: priceStr)!
             return LineItem(
                 rawName: name,
                 canonicalName: name,

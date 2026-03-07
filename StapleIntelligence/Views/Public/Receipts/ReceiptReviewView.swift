@@ -136,6 +136,7 @@ struct ReceiptReviewView: View {
                 }
                 ToolbarItem(placement: .bottomBar) {
                     Button {
+                        ScanningLog.template.log("Teach Layout tapped — merchant: \(normalizedMerchantName, privacy: .public), ocrLines: \(ocrLines.count, privacy: .public), images: \(images.count, privacy: .public)")
                         showingLabeler = true
                     } label: {
                         Label("Teach Layout", systemImage: "pencil.and.list.clipboard")
@@ -144,6 +145,7 @@ struct ReceiptReviewView: View {
                 }
             }
             .fullScreenCover(isPresented: $showingLabeler) {
+                let _ = ScanningLog.template.log("Labeler cover presented — ocrLines: \(ocrLines.count, privacy: .public), images: \(images.count, privacy: .public)")
                 ReceiptTemplateLabelerView(
                     ocrLines: ocrLines,
                     receiptImages: images,

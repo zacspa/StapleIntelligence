@@ -21,6 +21,7 @@ enum ScanningLog {
     static let imgSave   = Logger(subsystem: subsystem, category: "image_persist")
     static let edit       = Logger(subsystem: subsystem, category: "edit")
     static let validation = Logger(subsystem: subsystem, category: "validation")
+    static let template   = Logger(subsystem: subsystem, category: "template")
 }
 
 // MARK: - Transaction

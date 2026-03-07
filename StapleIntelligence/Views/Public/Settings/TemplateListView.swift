@@ -70,7 +70,7 @@ struct TemplateListView: View {
             Button("Cancel", role: .cancel) { templateToDelete = nil }
         } message: {
             if let t = templateToDelete {
-                Text(""\(t.templateName)" will be permanently deleted.")
+                Text("\"\(t.templateName)\" will be permanently deleted.")
             }
         }
         .fullScreenCover(item: $templateToEdit) { template in

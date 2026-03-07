@@ -6,6 +6,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import OSLog
 
 // MARK: - Root view
 
@@ -29,9 +30,9 @@ struct ReceiptTemplateLabelerView: View {
 
     private let lineEntries: [LineEntry]
 
-    @State private var labeledFields: [UUID: ReceiptFieldLabel]
+    @State private var labeledFields: [Int: ReceiptFieldLabel]
     @State private var templateName: String
-    @State private var selectedLineID: UUID? = nil
+    @State private var selectedLineID: Int? = nil
     @State private var showingPicker = false
     @State private var zoomScale: CGFloat = 1.0
     @State private var lastScale: CGFloat = 1.0
@@ -49,13 +50,16 @@ struct ReceiptTemplateLabelerView: View {
         self.existingTemplate = existingTemplate
         self.onDismiss = onDismiss
 
-        let entries = ocrLines.map(LineEntry.init)
+        let withBbox = ocrLines.filter { $0.boundingBox != nil }.count
+        ScanningLog.template.log("LabelerView init — merchant: \(merchantNormalizedName, privacy: .public), ocrLines: \(ocrLines.count, privacy: .public), withBbox: \(withBbox, privacy: .public), images: \(receiptImages.count, privacy: .public), editing: \(existingTemplate != nil, privacy: .public)")
+
+        let entries = ocrLines.enumerated().map { LineEntry(id: $0.offset, line: $0.element) }
         self.lineEntries = entries
 
         _templateName = State(initialValue: existingTemplate?.templateName ?? "")
 
         // Pre-populate labels from existing template by region intersection
-        var initialLabels: [UUID: ReceiptFieldLabel] = [:]
+        var initialLabels: [Int: ReceiptFieldLabel] = [:]
         if let template = existingTemplate {
             for entry in entries {
                 guard let bbox = entry.line.boundingBox else { continue }
@@ -72,19 +76,24 @@ struct ReceiptTemplateLabelerView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                if let image = receiptImages.first {
-                    imageCanvas(image: image)
-                } else {
-                    ContentUnavailableView(
-                        "No Image",
-                        systemImage: "photo",
-                        description: Text("No receipt image is available for labeling.")
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(AppTheme.Colors.base)
+            GeometryReader { geo in
+                VStack(spacing: 0) {
+                    if let image = receiptImages.first {
+                        let _ = ScanningLog.template.log("Labeler body — showing image canvas, size: \(image.size.width, privacy: .public)×\(image.size.height, privacy: .public), overlays: \(lineEntries.filter { $0.line.boundingBox != nil }.count, privacy: .public)")
+                        imageCanvas(image: image)
+                            .frame(height: geo.size.height * 0.62)
+                    } else {
+                        let _ = ScanningLog.template.error("Labeler body — NO IMAGE, receiptImages.count: \(receiptImages.count, privacy: .public)")
+                        ContentUnavailableView(
+                            "No Image",
+                            systemImage: "photo",
+                            description: Text("No receipt image is available for labeling.")
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(AppTheme.Colors.base)
+                    }
+                    templateInfoPanel
                 }
-                templateInfoPanel
             }
             .background(AppTheme.Colors.base)
             .navigationTitle("Teach Receipt Layout")
@@ -113,6 +122,12 @@ struct ReceiptTemplateLabelerView: View {
                             labeledFields.removeValue(forKey: id)
                         }
                     }
+                    let summary = Dictionary(grouping: labeledFields.values, by: { $0 })
+                        .mapValues(\.count)
+                        .sorted(by: { $0.key.rawValue < $1.key.rawValue })
+                        .map { "\($0.key.rawValue)×\($0.value)" }
+                        .joined(separator: ", ")
+                    ScanningLog.template.log("Labels after pick — total: \(labeledFields.count, privacy: .public) [\(summary, privacy: .public)]")
                     showingPicker = false
                 }
                 .presentationDetents([.medium])
@@ -128,15 +143,10 @@ struct ReceiptTemplateLabelerView: View {
         GeometryReader { geo in
             let imgSize = image.size
             let containerW = geo.size.width
-            let containerH = geo.size.height
-            let imgAspect = imgSize.width / imgSize.height
-            let containerAspect = containerW / containerH
-            let displayW = (imgAspect > containerAspect
-                ? containerW
-                : containerH * imgAspect) * zoomScale
-            let displayH = (imgAspect > containerAspect
-                ? containerW / imgAspect
-                : containerH) * zoomScale
+            // Always fill the container width so the receipt occupies the full horizontal
+            // space and scrolls vertically. Zoom scales from this base.
+            let displayW = containerW * zoomScale
+            let displayH = (containerW / (imgSize.width / imgSize.height)) * zoomScale
 
             ScrollView([.horizontal, .vertical]) {
                 ZStack(alignment: .topLeading) {
@@ -209,7 +219,6 @@ struct ReceiptTemplateLabelerView: View {
         }
         .scrollContentBackground(.hidden)
         .background(AppTheme.Colors.base)
-        .frame(maxHeight: 260)
     }
 
     // MARK: - Save
@@ -219,10 +228,10 @@ struct ReceiptTemplateLabelerView: View {
         guard !name.isEmpty, !merchantNormalizedName.isEmpty else { return }
 
         var fields: [TemplateField] = []
-        for (id, label) in labeledFields {
-            guard let entry = lineEntries.first(where: { $0.id == id }),
-                  let bbox = entry.line.boundingBox else { continue }
-            fields.append(TemplateField(label: label, region: bbox, anchorText: entry.line.text))
+        for (idx, label) in labeledFields {
+            guard idx < lineEntries.count,
+                  let bbox = lineEntries[idx].line.boundingBox else { continue }
+            fields.append(TemplateField(label: label, region: bbox, anchorText: lineEntries[idx].line.text))
         }
 
         let template: ReceiptLayoutTemplate
@@ -297,6 +306,7 @@ struct ReceiptTemplateLabelerView: View {
         case .tax:           return Color(hex: "FF9F0A")
         case .total:         return AppTheme.Colors.positive
         case .discount:      return AppTheme.Colors.negative
+        case .sku:           return Color(hex: "BF5AF2")
         case .ignore:        return AppTheme.Colors.tertiary
         }
     }
@@ -304,15 +314,12 @@ struct ReceiptTemplateLabelerView: View {
 
 // MARK: - Line entry (stable identity for ForEach)
 
-/// Wrapper giving each `OCRLine` a stable `UUID` for ForEach and labeledFields keying.
+/// Wrapper giving each `OCRLine` a stable index-based `Int` id for ForEach and
+/// labeledFields keying. Using the array index instead of a UUID ensures the id
+/// is deterministic across view re-renders, so labeledFields keys never become orphaned.
 private struct LineEntry: Identifiable {
-    let id: UUID
+    let id: Int
     let line: OCRLine
-
-    init(line: OCRLine) {
-        self.id = UUID()
-        self.line = line
-    }
 }
 
 // MARK: - Bounding box overlay
@@ -329,8 +336,8 @@ private struct BoundingBoxOverlay: View {
                 .fill(label != nil ? overlayColor.opacity(0.22) : Color.clear)
             Rectangle()
                 .strokeBorder(
-                    isSelected ? Color.white : (label != nil ? overlayColor : Color.white.opacity(0.4)),
-                    lineWidth: isSelected ? 2.5 : 1.2
+                    isSelected ? Color.white : (label != nil ? overlayColor : Color(hex: "FFE040").opacity(0.85)),
+                    lineWidth: isSelected ? 2.5 : 1.5
                 )
             if let label {
                 Text(label.displayName)
@@ -345,7 +352,7 @@ private struct BoundingBoxOverlay: View {
             }
         }
         .frame(width: displayRect.width, height: displayRect.height)
-        .offset(x: displayRect.minX, y: displayRect.minY)
+        .position(x: displayRect.midX, y: displayRect.midY)
         .contentShape(Rectangle())
     }
 
@@ -360,6 +367,7 @@ private struct BoundingBoxOverlay: View {
         case .tax:           return Color(hex: "FF9F0A")
         case .total:         return AppTheme.Colors.positive
         case .discount:      return AppTheme.Colors.negative
+        case .sku:           return Color(hex: "BF5AF2")
         case .ignore:        return AppTheme.Colors.tertiary
         }
     }
@@ -423,6 +431,7 @@ private struct FieldLabelPickerSheet: View {
         case .tax:           return Color(hex: "FF9F0A")
         case .total:         return AppTheme.Colors.positive
         case .discount:      return AppTheme.Colors.negative
+        case .sku:           return Color(hex: "BF5AF2")
         case .ignore:        return AppTheme.Colors.tertiary
         }
     }
