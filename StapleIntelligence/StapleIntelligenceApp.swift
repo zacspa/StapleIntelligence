@@ -69,6 +69,7 @@ struct StapleIntelligenceApp: App {
             Merchant.self,
             MerchantProduct.self,
             MergeRule.self,
+            ReceiptLayoutTemplate.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
