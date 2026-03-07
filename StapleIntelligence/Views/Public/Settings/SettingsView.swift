@@ -22,6 +22,7 @@ struct SettingsView: View {
 }
 
 private struct SettingsForm: View {
+    @Environment(\.modelContext) private var modelContext
     @AppStorage("validator.reconciliation") private var detectReconciliation = true
     @AppStorage("validator.priceConflicts") private var detectPriceConflicts = true
     @AppStorage("validator.missingData")    private var detectMissingData    = true
@@ -48,6 +49,15 @@ private struct SettingsForm: View {
             #if DEBUG
             Section("Developer") {
                 SkuGateToggle()
+                Button("Seed Demo Data") {
+                    DemoDataSeeder.seed(into: modelContext)
+                }
+                Button("Clear All Data", role: .destructive) {
+                    try? modelContext.delete(model: Receipt.self)
+                    try? modelContext.delete(model: Merchant.self)
+                    try? modelContext.delete(model: MerchantProduct.self)
+                    try? modelContext.save()
+                }
             }
             #endif
         }
