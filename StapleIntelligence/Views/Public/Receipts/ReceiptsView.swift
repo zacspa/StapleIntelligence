@@ -79,6 +79,8 @@ struct ReceiptsView: View {
         )) {
             Button("Delete", role: .destructive) {
                 if let receipt = receiptToDelete {
+                    let receiptID = receipt.id
+                    Task { await ReceiptPersistenceService.deleteImages(for: receiptID) }
                     modelContext.delete(receipt)
                     receiptToDelete = nil
                 }
@@ -248,5 +250,5 @@ struct IdentifiableError: Identifiable {
 
 #Preview {
     ReceiptsView()
-        .modelContainer(for: [Receipt.self, LineItem.self, Merchant.self, MerchantProduct.self], inMemory: true)
+        .modelContainer(for: [Receipt.self, LineItem.self, Merchant.self, MerchantProduct.self, MergeRule.self], inMemory: true)
 }
