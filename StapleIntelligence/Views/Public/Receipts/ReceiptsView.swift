@@ -30,8 +30,12 @@ struct ReceiptsView: View {
     @State private var pipelineTask: Task<Void, Never>? = nil
     @State private var receiptToDelete: Receipt? = nil
 
+    @State private var ocrLinesForReview: [OCRLine] = []
+
     private let ocrService = ReceiptOCRService()
     private let parser = ReceiptParser()
+    private let templateMatcher = TemplateMatchingService()
+    private let templateParser = TemplateParser()
 
     var body: some View {
         NavigationStack {
@@ -136,6 +140,7 @@ struct ReceiptsView: View {
         .sheet(item: $parsedReceipt) { receipt in
             ReceiptReviewView(
                 parsed: receipt,
+                ocrLines: ocrLinesForReview,
                 images: scannedImages,
                 onSave: { edited in
                     // Capture `edited` here — Task copies the struct into its heap closure,
@@ -170,7 +175,23 @@ struct ReceiptsView: View {
 
             let parseStart = Date()
             let localParser = parser
-            let parsed = await Task.detached(priority: .userInitiated) { localParser.parse(ocrLines) }.value
+            let genericParsed = await Task.detached(priority: .userInitiated) { localParser.parse(ocrLines) }.value
+
+            // Template-based parsing: look up a saved template for this merchant and run it
+            // synchronously on the main actor (ReceiptLayoutTemplate is not Sendable).
+            var parsed = genericParsed
+            if let merchantName = genericParsed.merchantName {
+                let normalized = ReceiptParser.canonicalize(merchantName)
+                if let template = templateMatcher.findTemplate(for: normalized, in: modelContext) {
+                    let templateParsed = templateParser.parse(ocrLines: ocrLines, template: template)
+                    if templateParsed.parseConfidence >= genericParsed.parseConfidence {
+                        parsed = templateParsed
+                        template.useCount += 1
+                        template.lastUsedAt = Date()
+                    }
+                }
+            }
+
             tx.endParse(
                 itemCount: parsed.lineItems.count,
                 parseConfidence: parsed.parseConfidence,
@@ -179,6 +200,7 @@ struct ReceiptsView: View {
                 durationMs: ms(since: parseStart)
             )
 
+            ocrLinesForReview = ocrLines
             isProcessing = false
             parsedReceipt = parsed
             tx.end(totalDurationMs: ms(since: pipelineStart))
@@ -211,6 +233,7 @@ struct ReceiptsView: View {
             scanError = IdentifiableError(underlying: error)
         }
         scannedImages = []
+        ocrLinesForReview = []
         parsedReceipt = nil
     }
 
@@ -277,5 +300,5 @@ struct IdentifiableError: Identifiable {
 
 #Preview {
     ReceiptsView()
-        .modelContainer(for: [Receipt.self, LineItem.self, Merchant.self, MerchantProduct.self, MergeRule.self], inMemory: true)
+        .modelContainer(for: [Receipt.self, LineItem.self, Merchant.self, MerchantProduct.self, MergeRule.self, ReceiptLayoutTemplate.self], inMemory: true)
 }

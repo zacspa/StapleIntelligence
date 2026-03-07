@@ -27,7 +27,8 @@ struct ReceiptParser {
     // MARK: - Static regex patterns
 
     private static let merchantPattern      = /^[A-Za-z][A-Za-z &'#.\-]{2,}$/
-    private static let datePattern          = /\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/
+    /// Exposed for `TemplateParser` reuse.
+    static let datePattern                  = /\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/
     // Single-column: SKU? + name + price + taxcode?
     private static let lineItemPattern      = /^(?:\d{3,9}\s+)?(.+?)\s+(-?\d{1,3}\.\d{2})\s*(FB|ND|FR|Ft|[ABDF])?$/
     // Weight sub-line: "1.51 lb x 1.95/lb" (OCR may read 'l' as '1')
@@ -45,17 +46,20 @@ struct ReceiptParser {
     private static let subtotalLabelPattern = /(?i)^SUBTOTAL$/
     private static let subtotalInlinePattern = /(?i)SUBTOTAL\s+(\d+[\.,]\d{2})/
     private static let totalPattern         = /(?im)^TOTAL\s+\$?(\d+[\.,]\d{2})$/
-    private static let dollarAmountPattern  = /\$\s*(\d{1,3}[\.,]\d{2})/
+    /// Exposed for `TemplateParser` reuse.
+    static let dollarAmountPattern          = /\$\s*(\d{1,3}[\.,]\d{2})/
     private static let cashierPattern       = /(?i)CASHIER|CLERK|OPERATOR/
     private static let visaPattern          = /(?i)VISA|MASTERCARD|DEBIT|CREDIT|CARD/
     // Allow "++APPROVED++", "+ APPROVED++", etc. — OCR sometimes drops the first "+"
     private static let approvedPattern      = /(?i)\+\s*APPROVED/
     // Price with ASCII tax code: "2.69 FB", "1.95 F8", "0.56 Fb" (case-insensitive)
-    private static let priceWithCodePattern = /(?i)^(\d{1,3}[\.,]\d{2})\s+([A-Z][A-Z0-9]?)$/
+    /// Exposed for `TemplateParser` reuse.
+    static let priceWithCodePattern         = /(?i)^(\d{1,3}[\.,]\d{2})\s+([A-Z][A-Z0-9]?)$/
     // Fallback: price followed by any non-whitespace token (handles non-ASCII codes like "гВ")
     private static let priceWithAnyCodePattern = /^(\d{1,3}[\.,]\d{2})\s+\S+$/
     // Standalone price with no tax code: must be exactly "X.XX" or "X,XX"
-    private static let standalonePricePattern = /^\d{1,3}[.,]\d{2}$/
+    /// Exposed for `TemplateParser` reuse.
+    static let standalonePricePattern       = /^\d{1,3}[.,]\d{2}$/
 
     // Matches a bare monetary amount: digits + decimal separator + exactly 2 decimal digits, nothing else.
     // Used to validate split-line subtotal/total candidates so that "50 ITEMS" (which Decimal(string:)

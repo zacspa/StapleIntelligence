@@ -18,6 +18,7 @@ internal import os
 /// can be pushed without affecting the parent stack.
 struct ReceiptReviewView: View {
     let parsed: ParsedReceipt
+    let ocrLines: [OCRLine]
     let images: [UIImage]
     var onSave: (ParsedReceipt) -> Void   // synchronous — caller wraps in Task to avoid
     var onCancel: () -> Void              // @in_guaranteed borrow through async thunk chain
@@ -26,12 +27,18 @@ struct ReceiptReviewView: View {
     @State private var purchaseDate: Date
     @State private var isSaving = false
     @State private var showingValidation = false
+    @State private var showingLabeler = false
     @State private var validationResult: ReceiptValidationResult? = nil
     @State private var editedForSave: ParsedReceipt? = nil
     private let validator = ReceiptValidator()
 
-    init(parsed: ParsedReceipt, images: [UIImage], onSave: @escaping (ParsedReceipt) -> Void, onCancel: @escaping () -> Void) {
+    private var normalizedMerchantName: String {
+        ReceiptParser.canonicalize(merchantName)
+    }
+
+    init(parsed: ParsedReceipt, ocrLines: [OCRLine] = [], images: [UIImage], onSave: @escaping (ParsedReceipt) -> Void, onCancel: @escaping () -> Void) {
         self.parsed = parsed
+        self.ocrLines = ocrLines
         self.images = images
         self.onSave = onSave
         self.onCancel = onCancel
@@ -42,6 +49,21 @@ struct ReceiptReviewView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if parsed.parseConfidence < 0.55 {
+                    Section {
+                        HStack(spacing: AppTheme.Spacing.sm) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(AppTheme.Colors.caution)
+                            Text("Low confidence parse")
+                                .font(.subheadline)
+                            Spacer()
+                            Button("Teach") { showingLabeler = true }
+                                .font(.subheadline.bold())
+                                .foregroundStyle(AppTheme.Colors.accent)
+                        }
+                    }
+                }
+
                 Section("Merchant") {
                     TextField("Store name", text: $merchantName)
                 }
@@ -112,6 +134,22 @@ struct ReceiptReviewView: View {
                     Button("Save", action: save)
                         .disabled(isSaving)
                 }
+                ToolbarItem(placement: .bottomBar) {
+                    Button {
+                        showingLabeler = true
+                    } label: {
+                        Label("Teach Layout", systemImage: "pencil.and.list.clipboard")
+                    }
+                    .foregroundStyle(AppTheme.Colors.accent)
+                }
+            }
+            .fullScreenCover(isPresented: $showingLabeler) {
+                ReceiptTemplateLabelerView(
+                    ocrLines: ocrLines,
+                    receiptImages: images,
+                    merchantNormalizedName: normalizedMerchantName,
+                    onDismiss: { showingLabeler = false }
+                )
             }
             .overlay {
                 if isSaving {

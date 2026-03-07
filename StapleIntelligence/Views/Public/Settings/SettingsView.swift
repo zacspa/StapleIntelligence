@@ -34,6 +34,14 @@ private struct SettingsForm: View {
     var body: some View {
         Form {
 
+            Section("Templates") {
+                NavigationLink {
+                    TemplateListView()
+                } label: {
+                    Label("Receipt Templates", systemImage: "doc.text.magnifyingglass")
+                }
+            }
+
             Section {
                 Toggle("Totals & reconciliation", isOn: $detectReconciliation)
                 Toggle("Price conflicts", isOn: $detectPriceConflicts)
