@@ -20,7 +20,7 @@ import OSLog
 /// Long-pressing a receipt row triggers a delete confirmation alert.
 struct ReceiptsView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Receipt.createdAt, order: .reverse) private var receipts: [Receipt]
+    @Query(sort: \Receipt.purchaseDate, order: .reverse) private var receipts: [Receipt]
 
     @State private var isShowingScanner = false
     @State private var scannedImages: [UIImage] = []

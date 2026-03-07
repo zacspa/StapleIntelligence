@@ -7,6 +7,7 @@
 
 import SwiftUI
 import SwiftData
+import Charts
 
 struct ItemDetailView: View {
     @Environment(\.modelContext) private var modelContext
@@ -16,6 +17,7 @@ struct ItemDetailView: View {
     let receipt: Receipt
 
     @State private var canonicalName: String
+    @State private var priceHistory: [PricePoint] = []
 
     init(item: LineItem, receipt: Receipt) {
         self.item = item
@@ -75,11 +77,32 @@ struct ItemDetailView: View {
             }
 
             Section("Price History") {
-                ContentUnavailableView(
-                    "No Price History",
-                    systemImage: "chart.line.uptrend.xyaxis",
-                    description: Text("Price history across receipts will appear here.")
-                )
+                if priceHistory.count < 2 {
+                    ContentUnavailableView(
+                        "Not Enough Data",
+                        systemImage: "chart.line.uptrend.xyaxis",
+                        description: Text("Scan more receipts with this item to see price history.")
+                    )
+                } else {
+                    Chart(priceHistory) { point in
+                        LineMark(
+                            x: .value("Date", point.date),
+                            y: .value("Price", NSDecimalNumber(decimal: point.unitPrice).doubleValue)
+                        )
+                        .foregroundStyle(AppTheme.Colors.accent)
+                        PointMark(
+                            x: .value("Date", point.date),
+                            y: .value("Price", NSDecimalNumber(decimal: point.unitPrice).doubleValue)
+                        )
+                        .foregroundStyle(AppTheme.Colors.accent)
+                    }
+                    .chartYAxis {
+                        AxisMarks(format: .currency(code: "USD"))
+                    }
+                    .frame(height: 180)
+                    .glowAccent()
+                    .padding(.vertical, AppTheme.Spacing.sm)
+                }
             }
         }
         .scrollContentBackground(.hidden)
@@ -90,6 +113,14 @@ struct ItemDetailView: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        .task {
+            let range = DateInterval(
+                start: Date().addingTimeInterval(-2 * 365 * 24 * 3600),
+                end: Date()
+            )
+            priceHistory = (try? InsightsEngine(modelContext: modelContext)
+                .itemPriceHistory(itemId: item.id, range: range)) ?? []
+        }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") { save() }
