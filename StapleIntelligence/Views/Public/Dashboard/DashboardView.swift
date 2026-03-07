@@ -76,7 +76,7 @@ struct DashboardView: View {
             cal.isDate($0.date, equalTo: prevMonthInterval.start, toGranularity: .month)
         }?.total ?? .zero
 
-        topMerchants = Array(((try? engine.merchantBreakdown(range: thisMonthInterval)) ?? []).prefix(3))
+        topMerchants = Array(((try? engine.merchantBreakdown(range: DateInterval(start: eightWeeksAgo, end: now))) ?? []).prefix(3))
     }
 }
 
@@ -153,7 +153,7 @@ private struct TopMerchantsSection: View {
         if !merchants.isEmpty {
             AppCard {
                 VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
-                    SectionHeader(title: "Top Merchants")
+                    SectionHeader(title: "Top Merchants (8 weeks)")
                     ForEach(merchants) { merchant in
                         VStack(spacing: AppTheme.Spacing.xs) {
                             HStack {
