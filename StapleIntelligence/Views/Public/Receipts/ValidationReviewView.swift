@@ -129,13 +129,19 @@ struct ValidationReviewView: View {
             let correctionMap = Dictionary(uniqueKeysWithValues: corrections.map { ($0.sku, $0.correctedPrice) })
             let updatedItems = resolvedParsed.lineItems.map { item -> ParsedLineItem in
                 guard let sku = item.sku, let correctedPrice = correctionMap[sku] else { return item }
-                let qty = Decimal(item.quantity ?? 1.0)
+                let lineTotal: Decimal
+                if case .byWeight(let qty, _) = item.itemType {
+                    lineTotal = Decimal(qty) * correctedPrice
+                } else {
+                    lineTotal = correctedPrice
+                }
                 return ParsedLineItem(
                     rawName: item.rawName, canonicalName: item.canonicalName,
-                    quantity: item.quantity, unit: item.unit,
+                    itemType: item.itemType,
                     unitPrice: item.unitPrice != nil ? correctedPrice : nil,
-                    lineTotal: qty * correctedPrice,
-                    isDiscount: item.isDiscount, confidence: item.confidence,
+                    lineTotal: lineTotal,
+                    isDiscount: item.isDiscount,
+                    confidence: item.confidence,
                     taxCode: item.taxCode, sku: item.sku, boundingBox: item.boundingBox
                 )
             }

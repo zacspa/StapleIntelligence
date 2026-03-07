@@ -85,8 +85,11 @@ struct ReceiptParserTests {
     @Test func aldiMixedColumnWeightItemAttachedCorrectly() throws {
         let r = parser.parse(aldiMixedColumn)
         let broccoli = try #require(r.lineItems.first { $0.canonicalName == "BROCCOLI CROWNS" })
-        #expect(broccoli.quantity == 1.51)
-        #expect(broccoli.unit == "lb")
+        guard case .byWeight(let qty, let unit) = broccoli.itemType else {
+            Issue.record("Expected broccoli to be a byWeight item"); return
+        }
+        #expect(abs(qty - 1.51) < 0.001)
+        #expect(unit == .lb)
         #expect(broccoli.unitPrice == Decimal(string: "1.95"))
         #expect(broccoli.lineTotal == Decimal(string: "2.94"))
     }
@@ -178,6 +181,44 @@ struct ReceiptParserTests {
         let comps = Calendar(identifier: .gregorian)
             .dateComponents([.year], from: try #require(r.purchaseDate))
         #expect(comps.year == 2025)
+    }
+
+    // MARK: - (N) net weight annotation format
+
+    @Test func nWeightLineAttachedToPrecedingItem() throws {
+        let receipt = parser.parse(aldiNWeightColumn)
+        let bananas = try #require(receipt.lineItems.first { $0.canonicalName == "BANANAS" })
+        guard case .byWeight(let qty, let unit) = bananas.itemType else {
+            Issue.record("Expected BANANAS to be .byWeight"); return
+        }
+        #expect(abs(qty - 1.52) < 0.001)
+        #expect(unit == .lb)
+        #expect(bananas.unitPrice == Decimal(string: "0.49"))
+        #expect(bananas.lineTotal == Decimal(string: "0.74"))
+    }
+
+    // MARK: - Inline weight (same-line format)
+
+    @Test func inlineWeightOnSameLineExtracted() throws {
+        let receipt = parser.parse("""
+        STORE
+        CASHIER 1
+        BANANAS 1.23 lb x 0.59/lb  0.73 F
+        MILK  2.99 FB
+        SUBTOTAL 3.72
+        TOTAL 3.72
+        """)
+        let bananas = try #require(receipt.lineItems.first { $0.canonicalName == "BANANAS" })
+        guard case .byWeight(let qty, let unit) = bananas.itemType else {
+            Issue.record("Expected BANANAS to be .byWeight"); return
+        }
+        #expect(abs(qty - 1.23) < 0.001)
+        #expect(unit == .lb)
+        #expect(bananas.unitPrice == Decimal(string: "0.59"))
+        #expect(bananas.lineTotal == Decimal(string: "0.73"))
+
+        let milk = try #require(receipt.lineItems.first { $0.canonicalName == "MILK" })
+        if case .byCount(let count) = milk.itemType { #expect(count == 1) }
     }
 
     @Test func dateNearVisaLinePreferredOverHeaderDate() throws {
@@ -312,6 +353,26 @@ private extension ReceiptParserTests {
         SUBTOTAL 1.99
         TOTAL 1.99
         01/15/25 10:00
+        """
+    }
+
+    /// ALDI split-column with (G)/(T)/(N) weight annotation lines.
+    /// (G) = gross, (T) = tare, (N) = net — only (N) has useful weight+unitPrice.
+    var aldiNWeightColumn: String {
+        """
+        ALDI
+        Store #20
+        Your cashier today was Bob
+        262747 Bananas LRW
+        (G) 1.531b - (T) 0.011b
+        (N) 1.52 1b x 0.49/1b
+        VISA
+        **x1234
+        01/15/25 10:00
+        ++ APPROVED++
+        0.74 FB
+        SUBTOTAL 0.74
+        TOTAL $0.74
         """
     }
 

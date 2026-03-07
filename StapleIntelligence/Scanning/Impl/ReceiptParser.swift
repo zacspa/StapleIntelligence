@@ -37,6 +37,10 @@ struct ReceiptParser {
     //   fragment 2: "1.95/1b"                   (unit price)
     private static let weightFrag1Pattern = /^(\d+[\.,]\d+)\s*(1b|ib|lb|oz|kg)\s+[xX]$/
     private static let weightFrag2Pattern = /^(\d+[\.,]\d+)\s*\/\s*(1b|ib|lb|oz|kg)$/
+    // Inline weight embedded in rawName: "BANANAS 1.23 lb x 0.59/lb" → qty=1.23, unit=lb, unitPrice=0.59
+    // Group 1: qty, Group 2: unit, Group 3: unitPrice
+    private static let inlineWeightDetailPattern =
+        /(?i)(\d+[\.,]\d+)\s*(lb|oz|kg|1b|ib)\s+[xX]\s+(\d+[\.,]\d+)\s*\/?\s*(?:lb|oz|kg|1b|ib)\s*$/
     private static let discountPattern      = /(?i)^[\*\-]|SAVING|DISCOUNT|COUPON/
     private static let subtotalLabelPattern = /(?i)^SUBTOTAL$/
     private static let subtotalInlinePattern = /(?i)SUBTOTAL\s+(\d+[\.,]\d{2})/
@@ -65,6 +69,10 @@ struct ReceiptParser {
     // e.g. "(T) 0.01" = tare weight, "(G) 1.53" = gross, "(N) 1.52" = net.
     // These match lineItemPattern (short label + decimal) and must be skipped explicitly.
     private static let tareAnnotationPattern = /^\([TGN]\)/
+    // (N) net weight line with unit price: "(N) 1.52 1b x 0.49/1b"
+    // Group 1: net qty, Group 2: unit, Group 3: unitPrice
+    private static let nWeightPattern =
+        /^\(N\)\s+(\d+[\.,]\d+)\s*(lb|oz|kg|1b|ib)\s+[xX]\s+(\d+[\.,]\d+)\s*\/?\s*(?:lb|oz|kg|1b|ib)/
 
     // MARK: - Section bounds
 
@@ -133,9 +141,9 @@ struct ReceiptParser {
             var info = "  [\(i)] \(item.canonicalName) = \(item.lineTotal)"
             if item.rawName.uppercased() != item.canonicalName { info += "  raw=\"\(item.rawName)\"" }
             if let sku = item.sku { info += "  sku=\(sku)" }
-            if let qty = item.quantity, let unit = item.unit {
-                info += "  \(String(format: "%.2f", qty)) \(unit)"
-                if let up = item.unitPrice { info += " × \(up)/\(unit)" }
+            if case .byWeight(let qty, let unit) = item.itemType {
+                info += "  \(String(format: "%.2f", qty)) \(unit.rawValue)"
+                if let up = item.unitPrice { info += " × \(up)/\(unit.rawValue)" }
             }
             if let tc = item.taxCode { info += "  [\(tc)]" }
             if item.isDiscount { info += "  DISC" }
@@ -432,22 +440,32 @@ struct ReceiptParser {
             let taxCode  = match.3.map(String.init)
             guard let price = Decimal(string: priceStr, locale: Locale(identifier: "en_US_POSIX")) else { idx += 1; continue }
             let isDiscount = (try? Self.discountPattern.firstMatch(in: rawName)) != nil || price < 0
-            var quantity: Double? = nil
-            var unit: String? = nil
-            var unitPrice: Decimal? = nil
+            var weightQty: Double? = nil
+            var weightUnit: WeightUnit? = nil
+            var weightUnitPrice: Decimal? = nil
+            // Step A: check rawName itself for embedded inline weight (e.g. "BANANAS 1.23 lb x 0.59/lb")
+            if let wm = try? Self.inlineWeightDetailPattern.firstMatch(in: rawName) {
+                weightQty       = Double(normalize(String(wm.1)))
+                weightUnit      = normalizeUnit(String(wm.2))
+                weightUnitPrice = Decimal(string: normalize(String(wm.3)), locale: Locale(identifier: "en_US_POSIX"))
+            }
+            // Step B: next-line weight sub-line overrides Step A if present
             let nextIdx = idx + 1
             if nextIdx < section.count,
                let wm = try? Self.weightSublinePattern.wholeMatch(in: section[nextIdx]) {
-                quantity = Double(normalize(String(wm.1)))
-                unit = section[nextIdx].contains("lb") || section[nextIdx].contains("1b") ? "lb"
-                     : section[nextIdx].contains("oz") ? "oz" : "kg"
-                unitPrice = Decimal(string: normalize(String(wm.2)), locale: Locale(identifier: "en_US_POSIX"))
+                weightQty = Double(normalize(String(wm.1)))
+                let rawUnit = section[nextIdx].contains("lb") || section[nextIdx].contains("1b") ? "lb"
+                           : section[nextIdx].contains("oz") ? "oz" : "kg"
+                weightUnit = WeightUnit(rawValue: rawUnit) ?? .lb
+                weightUnitPrice = Decimal(string: normalize(String(wm.2)), locale: Locale(identifier: "en_US_POSIX"))
                 idx += 1
             }
+            let itemType: ItemType = weightQty.map { .byWeight(quantity: $0, unit: weightUnit ?? .lb) } ?? .byCount(count: 1)
             let canonical = Self.canonicalize(rawName)
             items.append(ParsedLineItem(
-                rawName: rawName, canonicalName: canonical, quantity: quantity, unit: unit,
-                unitPrice: unitPrice, lineTotal: price, isDiscount: isDiscount,
+                rawName: rawName, canonicalName: canonical,
+                itemType: itemType, unitPrice: weightUnitPrice,
+                lineTotal: price, isDiscount: isDiscount,
                 confidence: itemConfidence(ocrLines: ocrLines, lineIndex: sourceLineIndex, canonical: canonical, isDiscount: isDiscount),
                 taxCode: taxCode, sku: sku,
                 boundingBox: sourceLineIndex < ocrLines.count ? ocrLines[sourceLineIndex].boundingBox : nil))
@@ -461,11 +479,11 @@ struct ReceiptParser {
         guard let priceStart = bounds.priceStart, let priceEnd = bounds.priceEnd else { return [] }
 
         // Collect name entries, attaching weight sub-lines to the preceding name
-        struct NameEntry { var raw: String; var lineIndex: Int; var weightQty: Double?; var weightUnit: String?; var weightUnitPrice: Decimal? }
+        struct NameEntry { var raw: String; var lineIndex: Int; var weightQty: Double?; var weightUnit: WeightUnit?; var weightUnitPrice: Decimal? }
         var names: [NameEntry] = []
 
         var pendingWeightQty: Double? = nil
-        var pendingWeightUnit: String? = nil
+        var pendingWeightUnit: WeightUnit? = nil
 
         #if DEBUG
         let useSkuGate = ReceiptParser.useSkuGatedNameCollection
@@ -483,18 +501,24 @@ struct ReceiptParser {
                 // Branch A — SKU prefix confirmed → real item line
                 if (try? Self.skuCapturePattern.firstMatch(in: line)) != nil {
                     pendingWeightQty = nil; pendingWeightUnit = nil
-                    names.append(NameEntry(raw: line, lineIndex: i, weightQty: nil, weightUnit: nil, weightUnitPrice: nil))
+                    var entry = NameEntry(raw: line, lineIndex: i, weightQty: nil, weightUnit: nil, weightUnitPrice: nil)
+                    if let wm = try? Self.inlineWeightDetailPattern.firstMatch(in: line) {
+                        entry.weightQty       = Double(normalize(String(wm.1)))
+                        entry.weightUnit      = normalizeUnit(String(wm.2))
+                        entry.weightUnitPrice = Decimal(string: normalize(String(wm.3)), locale: Locale(identifier: "en_US_POSIX"))
+                    }
+                    names.append(entry)
                     continue
                 }
                 // Branch B — no SKU → weight metadata for the preceding item (if any), else dropped
                 guard !names.isEmpty else { continue }
                 if let wm = try? Self.weightSublinePattern.wholeMatch(in: line) {
                     let qty  = Double(normalize(String(wm.1)))
-                    let unit = line.contains("lb") || line.contains("1b") ? "lb"
-                             : line.contains("oz") ? "oz" : "kg"
+                    let rawUnit = line.contains("lb") || line.contains("1b") ? "lb"
+                               : line.contains("oz") ? "oz" : "kg"
                     let up   = Decimal(string: normalize(String(wm.2)), locale: Locale(identifier: "en_US_POSIX"))
                     names[names.count - 1].weightQty       = qty
-                    names[names.count - 1].weightUnit      = unit
+                    names[names.count - 1].weightUnit      = WeightUnit(rawValue: rawUnit) ?? .lb
                     names[names.count - 1].weightUnitPrice = up
                     pendingWeightQty = nil; pendingWeightUnit = nil
                     continue
@@ -513,17 +537,28 @@ struct ReceiptParser {
                     pendingWeightQty = nil; pendingWeightUnit = nil
                     continue
                 }
+                // (N) net weight line: "(N) 1.52 1b x 0.49/1b" — the useful weight/price annotation
+                if let wm = try? Self.nWeightPattern.firstMatch(in: line) {
+                    let rawUnit = line.contains("lb") || line.contains("1b") ? "lb"
+                               : line.contains("oz") ? "oz" : "kg"
+                    names[names.count - 1].weightQty       = Double(normalize(String(wm.1)))
+                    names[names.count - 1].weightUnit      = WeightUnit(rawValue: rawUnit) ?? .lb
+                    names[names.count - 1].weightUnitPrice = Decimal(string: normalize(String(wm.3)),
+                                                                      locale: Locale(identifier: "en_US_POSIX"))
+                    pendingWeightQty = nil; pendingWeightUnit = nil
+                    continue
+                }
                 // Tare annotations, OCR noise, separators — silently dropped
             } else {
                 // Legacy blacklist approach (DEBUG only, for A/B comparison)
                 if let wm = try? Self.weightSublinePattern.wholeMatch(in: line) {
                     if !names.isEmpty {
                         let qty  = Double(normalize(String(wm.1)))
-                        let unit = line.contains("lb") || line.contains("1b") ? "lb"
-                                 : line.contains("oz") ? "oz" : "kg"
+                        let rawUnit = line.contains("lb") || line.contains("1b") ? "lb"
+                                   : line.contains("oz") ? "oz" : "kg"
                         let up   = Decimal(string: normalize(String(wm.2)), locale: Locale(identifier: "en_US_POSIX"))
                         names[names.count - 1].weightQty       = qty
-                        names[names.count - 1].weightUnit      = unit
+                        names[names.count - 1].weightUnit      = WeightUnit(rawValue: rawUnit) ?? .lb
                         names[names.count - 1].weightUnitPrice = up
                     }
                     pendingWeightQty = nil; pendingWeightUnit = nil
@@ -544,10 +579,25 @@ struct ReceiptParser {
                     continue
                 }
                 pendingWeightQty = nil; pendingWeightUnit = nil
+                if let wm = try? Self.nWeightPattern.firstMatch(in: line), !names.isEmpty {
+                    let rawUnit = line.contains("lb") || line.contains("1b") ? "lb"
+                               : line.contains("oz") ? "oz" : "kg"
+                    names[names.count - 1].weightQty       = Double(normalize(String(wm.1)))
+                    names[names.count - 1].weightUnit      = WeightUnit(rawValue: rawUnit) ?? .lb
+                    names[names.count - 1].weightUnitPrice = Decimal(string: normalize(String(wm.3)),
+                                                                      locale: Locale(identifier: "en_US_POSIX"))
+                    continue
+                }
                 if (try? Self.tareAnnotationPattern.firstMatch(in: line)) != nil { continue }
                 let alphaCount = line.filter { $0.isLetter }.count
                 guard alphaCount >= 4 else { continue }
-                names.append(NameEntry(raw: line, lineIndex: i, weightQty: nil, weightUnit: nil, weightUnitPrice: nil))
+                var legacyEntry = NameEntry(raw: line, lineIndex: i, weightQty: nil, weightUnit: nil, weightUnitPrice: nil)
+                if let wm = try? Self.inlineWeightDetailPattern.firstMatch(in: line) {
+                    legacyEntry.weightQty       = Double(normalize(String(wm.1)))
+                    legacyEntry.weightUnit      = normalizeUnit(String(wm.2))
+                    legacyEntry.weightUnitPrice = Decimal(string: normalize(String(wm.3)), locale: Locale(identifier: "en_US_POSIX"))
+                }
+                names.append(legacyEntry)
             }
         }
 
@@ -590,8 +640,8 @@ struct ReceiptParser {
         for (i, n) in names.enumerated() {
             var info = "  name[\(i)] \"\(n.raw)\""
             if let qty = n.weightQty, let unit = n.weightUnit {
-                info += "  \(String(format: "%.2f", qty)) \(unit)"
-                if let up = n.weightUnitPrice { info += " × \(up)/\(unit)" }
+                info += "  \(String(format: "%.2f", qty)) \(unit.rawValue)"
+                if let up = n.weightUnitPrice { info += " × \(up)/\(unit.rawValue)" }
             }
             log(info)
         }
@@ -666,7 +716,8 @@ struct ReceiptParser {
                 let sku = Self.extractSKU(from: nl.raw)
                 items.append(ParsedLineItem(
                     rawName: nl.raw, canonicalName: canonical,
-                    quantity: nl.weightQty, unit: nl.weightUnit, unitPrice: nl.weightUnitPrice,
+                    itemType: nl.weightQty.map { .byWeight(quantity: $0, unit: nl.weightUnit ?? .lb) } ?? .byCount(count: 1),
+                    unitPrice: nl.weightUnitPrice,
                     lineTotal: pl.price, isDiscount: isDiscount,
                     confidence: itemConfidence(ocrLines: ocrLines, lineIndex: nl.lineIndex, canonical: canonical, isDiscount: isDiscount, priceLineIndex: pl.lineIndex),
                     taxCode: pl.taxCode, sku: sku,
@@ -682,7 +733,8 @@ struct ReceiptParser {
                 let sku = Self.extractSKU(from: nl.raw)
                 items.append(ParsedLineItem(
                     rawName: nl.raw, canonicalName: canonical,
-                    quantity: nl.weightQty, unit: nl.weightUnit, unitPrice: nl.weightUnitPrice,
+                    itemType: nl.weightQty.map { .byWeight(quantity: $0, unit: nl.weightUnit ?? .lb) } ?? .byCount(count: 1),
+                    unitPrice: nl.weightUnitPrice,
                     lineTotal: pl.price, isDiscount: isDiscount,
                     confidence: itemConfidence(ocrLines: ocrLines, lineIndex: nl.lineIndex, canonical: canonical, isDiscount: isDiscount, priceLineIndex: pl.lineIndex),
                     taxCode: pl.taxCode, sku: sku,
@@ -695,12 +747,12 @@ struct ReceiptParser {
     /// Mixed-column format: OCR interleaved names and prices in the same block.
     /// Scans [start, end) collecting names and prices independently, then zips by index.
     private func extractMixedColumnItems(from lines: [String], ocrLines: [OCRLine], start: Int, end: Int, log: (String) -> Void = { _ in }) -> [ParsedLineItem] {
-        struct NameEntry { var raw: String; var lineIndex: Int; var weightQty: Double?; var weightUnit: String?; var weightUnitPrice: Decimal? }
+        struct NameEntry { var raw: String; var lineIndex: Int; var weightQty: Double?; var weightUnit: WeightUnit?; var weightUnitPrice: Decimal? }
         struct PriceEntry { var price: Decimal; var taxCode: String?; var lineIndex: Int }
         var names: [NameEntry] = []
         var prices: [PriceEntry] = []
         var pendingWeightQty: Double? = nil
-        var pendingWeightUnit: String? = nil
+        var pendingWeightUnit: WeightUnit? = nil
 
         var i = start
         while i < end {
@@ -711,9 +763,10 @@ struct ReceiptParser {
             // Full single-line weight sub-line
             if let wm = try? Self.weightSublinePattern.wholeMatch(in: line) {
                 if !names.isEmpty {
+                    let rawUnit = line.contains("lb") || line.contains("1b") ? "lb"
+                               : line.contains("oz") ? "oz" : "kg"
                     names[names.count - 1].weightQty       = Double(normalize(String(wm.1)))
-                    names[names.count - 1].weightUnit      = line.contains("lb") || line.contains("1b") ? "lb"
-                                                             : line.contains("oz") ? "oz" : "kg"
+                    names[names.count - 1].weightUnit      = WeightUnit(rawValue: rawUnit) ?? .lb
                     names[names.count - 1].weightUnitPrice = Decimal(string: normalize(String(wm.2)),
                                                                        locale: Locale(identifier: "en_US_POSIX"))
                 }
@@ -738,6 +791,16 @@ struct ReceiptParser {
             }
             pendingWeightQty = nil; pendingWeightUnit = nil
 
+            // (N) net weight line: "(N) 1.52 1b x 0.49/1b" — attach weight/price to preceding item
+            if let wm = try? Self.nWeightPattern.firstMatch(in: line), !names.isEmpty {
+                let rawUnit = line.contains("lb") || line.contains("1b") ? "lb"
+                           : line.contains("oz") ? "oz" : "kg"
+                names[names.count - 1].weightQty       = Double(normalize(String(wm.1)))
+                names[names.count - 1].weightUnit      = WeightUnit(rawValue: rawUnit) ?? .lb
+                names[names.count - 1].weightUnitPrice = Decimal(string: normalize(String(wm.3)),
+                                                                  locale: Locale(identifier: "en_US_POSIX"))
+                continue
+            }
             // Skip tare/gross/net annotation lines — "(G) 1.531b - (T) 0.01lb", "(N) 1.52 1b x 0.49/1b"
             if (try? Self.tareAnnotationPattern.firstMatch(in: line)) != nil { continue }
 
@@ -748,7 +811,13 @@ struct ReceiptParser {
             }
             // Name check
             guard line.filter({ $0.isLetter }).count >= 4 else { continue }
-            names.append(NameEntry(raw: line, lineIndex: i, weightQty: nil, weightUnit: nil, weightUnitPrice: nil))
+            var entry = NameEntry(raw: line, lineIndex: i, weightQty: nil, weightUnit: nil, weightUnitPrice: nil)
+            if let wm = try? Self.inlineWeightDetailPattern.firstMatch(in: line) {
+                entry.weightQty       = Double(normalize(String(wm.1)))
+                entry.weightUnit      = normalizeUnit(String(wm.2))
+                entry.weightUnitPrice = Decimal(string: normalize(String(wm.3)), locale: Locale(identifier: "en_US_POSIX"))
+            }
+            names.append(entry)
         }
 
         ScanningLog.parse.debug("mixedColumn: \(names.count, privacy: .public) names, \(prices.count, privacy: .public) prices")
@@ -756,8 +825,8 @@ struct ReceiptParser {
         for (i, n) in names.enumerated() {
             var info = "  name[\(i)] \"\(n.raw)\""
             if let qty = n.weightQty, let unit = n.weightUnit {
-                info += "  \(String(format: "%.2f", qty)) \(unit)"
-                if let up = n.weightUnitPrice { info += " × \(up)/\(unit)" }
+                info += "  \(String(format: "%.2f", qty)) \(unit.rawValue)"
+                if let up = n.weightUnitPrice { info += " × \(up)/\(unit.rawValue)" }
             }
             log(info)
         }
@@ -775,7 +844,8 @@ struct ReceiptParser {
             let sourceLineIndex = nl.lineIndex
             items.append(ParsedLineItem(
                 rawName: nl.raw, canonicalName: canonical,
-                quantity: nl.weightQty, unit: nl.weightUnit, unitPrice: nl.weightUnitPrice,
+                itemType: nl.weightQty.map { .byWeight(quantity: $0, unit: nl.weightUnit ?? .lb) } ?? .byCount(count: 1),
+                unitPrice: nl.weightUnitPrice,
                 lineTotal: pl.price, isDiscount: isDiscount,
                 confidence: itemConfidence(ocrLines: ocrLines, lineIndex: sourceLineIndex, canonical: canonical, isDiscount: isDiscount, priceLineIndex: pl.lineIndex),
                 taxCode: pl.taxCode, sku: sku,
@@ -866,12 +936,12 @@ struct ReceiptParser {
     }
 
     /// Normalize OCR unit strings: "1b" and "ib" are common OCR misreads of "lb"
-    private func normalizeUnit(_ raw: String) -> String {
+    private func normalizeUnit(_ raw: String) -> WeightUnit {
         switch raw.lowercased() {
-        case "1b", "ib", "lb": return "lb"
-        case "oz": return "oz"
-        case "kg": return "kg"
-        default: return raw.lowercased()
+        case "1b", "ib", "lb": return .lb
+        case "oz": return .oz
+        case "kg": return .kg
+        default: return .lb
         }
     }
 

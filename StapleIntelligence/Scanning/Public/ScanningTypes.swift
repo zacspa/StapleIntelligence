@@ -21,8 +21,7 @@ struct OCRLine: Sendable {
 struct ParsedLineItem {
     let rawName: String
     let canonicalName: String
-    let quantity: Double?
-    let unit: String?
+    let itemType: ItemType
     let unitPrice: Decimal?
     let lineTotal: Decimal
     let isDiscount: Bool
@@ -30,6 +29,11 @@ struct ParsedLineItem {
     let taxCode: String?
     let sku: String?
     let boundingBox: CGRect?  // Vision-normalized bottom-left origin; nil if unavailable
+
+    var isWeightItem: Bool {
+        if case .byWeight = itemType { return true }
+        return false
+    }
 }
 
 struct ParsedReceipt: Identifiable {
