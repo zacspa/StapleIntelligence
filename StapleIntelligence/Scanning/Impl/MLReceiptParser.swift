@@ -124,6 +124,23 @@ struct MLReceiptParser: @unchecked Sendable {
         let topLabels = globalLabelCounts.sorted { $0.value > $1.value }.prefix(8)
             .map { "\($0.key)(\(labelMap[$0.key]?.rawValue ?? "?"))×\($0.value)" }.joined(separator: " ")
         ScanningLog.parse.log("ML top predicted label IDs: \(topLabels, privacy: .public)")
+
+        // Per-line token range diagnostics (first 6 lines)
+        let lineRangeStr = lineTokenRanges.prefix(6).enumerated()
+            .map { i, r in "\(i):\(r.isEmpty ? "EMPTY" : "\(r)")" }.joined(separator: " ")
+        ScanningLog.parse.log("ML line token ranges: \(lineRangeStr, privacy: .public)")
+
+        // Labels for real tokens only (indices 1..<last real token before SEP)
+        let realTokenCount = attentionMask.prefix(Self.maxSeqLen).filter { $0 == 1 }.count
+        var realLabelCounts = [Int: Int]()
+        for ti in 1..<max(1, realTokenCount - 1) {   // skip [CLS] at 0 and [SEP] at end
+            guard ti * numLabels + numLabels <= logits.count else { break }
+            let id = argmax(logits: logits, tokenIndex: ti, numLabels: numLabels)
+            realLabelCounts[id, default: 0] += 1
+        }
+        let realLabels = realLabelCounts.sorted { $0.value > $1.value }.prefix(6)
+            .map { "\($0.key)(\(labelMap[$0.key]?.rawValue ?? "?"))×\($0.value)" }.joined(separator: " ")
+        ScanningLog.parse.log("ML real-token labels (\(realTokenCount, privacy: .public) real): \(realLabels, privacy: .public)")
         #endif
 
         let rawText = ocrLines.map(\.text).joined(separator: "\n")
@@ -491,7 +508,7 @@ private struct ByteLevelBPETokenizer {
         // RoBERTa ByteLevel pre-tokenizer uses add_prefix_space=True, meaning
         // every word (including the first) gets a 'Ġ' prefix in the byte encoding.
         let spaceChar = byteEncoder[32] ?? "Ġ"
-        for (_, word) in words.enumerated() {
+        for (wordIdx, word) in words.enumerated() {
             var chars = word.utf8.compactMap { byteEncoder[$0] }
             chars.insert(spaceChar, at: 0)
             let merged = bpe(chars)
