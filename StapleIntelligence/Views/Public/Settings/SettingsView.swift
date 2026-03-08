@@ -58,6 +58,7 @@ private struct SettingsForm: View {
             #if DEBUG
             Section("Developer") {
                 SkuGateToggle()
+                MLParserToggle()
                 Button("Seed Demo Data") {
                     DemoDataSeeder.seed(into: modelContext)
                 }
@@ -76,6 +77,17 @@ private struct SettingsForm: View {
 }
 
 #if DEBUG
+private struct MLParserToggle: View {
+    @AppStorage("debug.forceMLParser") private var forceMLParser = false
+
+    var body: some View {
+        Toggle("Force ML parser", isOn: $forceMLParser)
+        Text("Always use the LayoutLMv3 on-device model result, regardless of confidence. Requires ReceiptClassifier.mlpackage in bundle.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+}
+
 private struct SkuGateToggle: View {
     @State private var skuGated = ReceiptParser.useSkuGatedNameCollection
 

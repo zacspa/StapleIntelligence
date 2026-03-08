@@ -38,6 +38,10 @@ struct ReceiptsView: View {
     private let templateParser = TemplateParser()
     private let mlParser: MLReceiptParser? = try? MLReceiptParser()
 
+    #if DEBUG
+    @AppStorage("debug.forceMLParser") private var forceMLParser = false
+    #endif
+
     var body: some View {
         NavigationStack {
             Group {
@@ -193,16 +197,24 @@ struct ReceiptsView: View {
                 }
             }
 
-            // ML-based parsing: run LayoutLMv3 on-device if available; keep result if
-            // it beats the current best confidence.
+            // ML-based parsing: run LayoutLMv3 on-device if available.
+            // In DEBUG builds, "Force ML parser" in Settings bypasses the confidence
+            // check and always uses the ML result.
             if let ml = mlParser, let firstImage = images.first {
                 let localML = ml
                 let mlParsed = await Task.detached(priority: .userInitiated) {
                     localML.parse(ocrLines: ocrLines, image: firstImage)
                 }.value
-                if let mlParsed, mlParsed.parseConfidence > parsed.parseConfidence {
-                    ScanningLog.parse.log("ML parser won — conf: \(mlParsed.parseConfidence, privacy: .public) vs \(parsed.parseConfidence, privacy: .public)")
-                    parsed = mlParsed
+                if let mlParsed {
+                    #if DEBUG
+                    let useML = forceMLParser || mlParsed.parseConfidence > parsed.parseConfidence
+                    #else
+                    let useML = mlParsed.parseConfidence > parsed.parseConfidence
+                    #endif
+                    if useML {
+                        ScanningLog.parse.log("ML parser active — conf: \(mlParsed.parseConfidence, privacy: .public) vs \(parsed.parseConfidence, privacy: .public), forced: \(useML, privacy: .public)")
+                        parsed = mlParsed
+                    }
                 }
             }
 
