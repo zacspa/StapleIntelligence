@@ -90,6 +90,12 @@ struct MLReceiptParser: @unchecked Sendable {
 
         // Aggregate per-token predictions → per-line dominant label
         var labeledLines = [ReceiptFieldLabel: [OCRLine]]()
+        #if DEBUG
+        var globalLabelCounts = [Int: Int]()   // raw label id → token count across whole sequence
+        var firstTokenLogits = [Float]()
+        if numLabels > 0 { firstTokenLogits = Array(logits.prefix(numLabels)) }
+        #endif
+
         for (lineIdx, line) in ocrLines.enumerated() {
             guard lineIdx < lineTokenRanges.count else { continue }
             let range = lineTokenRanges[lineIdx]
@@ -99,6 +105,9 @@ struct MLReceiptParser: @unchecked Sendable {
             for tokenIdx in range {
                 guard tokenIdx * numLabels + numLabels <= logits.count else { continue }
                 let labelId = argmax(logits: logits, tokenIndex: tokenIdx, numLabels: numLabels)
+                #if DEBUG
+                globalLabelCounts[labelId, default: 0] += 1
+                #endif
                 let label   = labelMap[labelId] ?? .ignore
                 if label != .ignore { counts[label, default: 0] += 1 }
             }
@@ -106,6 +115,15 @@ struct MLReceiptParser: @unchecked Sendable {
                 labeledLines[dominant, default: []].append(line)
             }
         }
+
+        #if DEBUG
+        let logitRange = logits.isEmpty ? "empty" : "\(logits.min()!)…\(logits.max()!)"
+        ScanningLog.parse.log("ML logits — range: \(logitRange, privacy: .public), total_tokens: \(logits.count / max(numLabels,1), privacy: .public)")
+        ScanningLog.parse.log("ML first-token logits (id 0-9): \(firstTokenLogits.prefix(10).map { String(format:"%.2f",$0) }.joined(separator:", "), privacy: .public)")
+        let topLabels = globalLabelCounts.sorted { $0.value > $1.value }.prefix(8)
+            .map { "\($0.key)(\(labelMap[$0.key]?.rawValue ?? "?"))×\($0.value)" }.joined(separator: " ")
+        ScanningLog.parse.log("ML top predicted label IDs: \(topLabels, privacy: .public)")
+        #endif
 
         let rawText = ocrLines.map(\.text).joined(separator: "\n")
         return extractParsedReceipt(from: labeledLines, rawOcrText: rawText)
