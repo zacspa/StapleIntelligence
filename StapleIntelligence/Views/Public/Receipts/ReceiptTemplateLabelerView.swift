@@ -112,22 +112,23 @@ struct ReceiptTemplateLabelerView: View {
                 }
             }
             .sheet(isPresented: $showingPicker) {
+                let fieldsBinding = $labeledFields
                 FieldLabelPickerSheet(
                     currentLabel: selectedLineID.flatMap { labeledFields[$0] }
                 ) { chosen in
                     if let id = selectedLineID {
                         if let chosen {
-                            labeledFields[id] = chosen
+                            fieldsBinding.wrappedValue[id] = chosen
                         } else {
-                            labeledFields.removeValue(forKey: id)
+                            fieldsBinding.wrappedValue.removeValue(forKey: id)
                         }
                     }
-                    let summary = Dictionary(grouping: labeledFields.values, by: { $0 })
+                    let summary = Dictionary(grouping: fieldsBinding.wrappedValue.values, by: { $0 })
                         .mapValues(\.count)
                         .sorted(by: { $0.key.rawValue < $1.key.rawValue })
                         .map { "\($0.key.rawValue)×\($0.value)" }
                         .joined(separator: ", ")
-                    ScanningLog.template.log("Labels after pick — total: \(labeledFields.count, privacy: .public) [\(summary, privacy: .public)]")
+                    ScanningLog.template.log("Labels after pick — total: \(fieldsBinding.wrappedValue.count, privacy: .public) [\(summary, privacy: .public)]")
                     showingPicker = false
                 }
                 .presentationDetents([.medium])

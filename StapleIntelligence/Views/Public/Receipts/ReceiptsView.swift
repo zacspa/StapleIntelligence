@@ -36,6 +36,7 @@ struct ReceiptsView: View {
     private let parser = ReceiptParser()
     private let templateMatcher = TemplateMatchingService()
     private let templateParser = TemplateParser()
+    private let mlParser: MLReceiptParser? = try? MLReceiptParser()
 
     var body: some View {
         NavigationStack {
@@ -184,11 +185,24 @@ struct ReceiptsView: View {
                 let normalized = ReceiptParser.canonicalize(merchantName)
                 if let template = templateMatcher.findTemplate(for: normalized, in: modelContext) {
                     let templateParsed = templateParser.parse(ocrLines: ocrLines, template: template)
-                    if templateParsed.parseConfidence >= genericParsed.parseConfidence {
+                    if templateParsed.parseConfidence >= parsed.parseConfidence {
                         parsed = templateParsed
                         template.useCount += 1
                         template.lastUsedAt = Date()
                     }
+                }
+            }
+
+            // ML-based parsing: run LayoutLMv3 on-device if available; keep result if
+            // it beats the current best confidence.
+            if let ml = mlParser, let firstImage = images.first {
+                let localML = ml
+                let mlParsed = await Task.detached(priority: .userInitiated) {
+                    localML.parse(ocrLines: ocrLines, image: firstImage)
+                }.value
+                if let mlParsed, mlParsed.parseConfidence > parsed.parseConfidence {
+                    ScanningLog.parse.log("ML parser won — conf: \(mlParsed.parseConfidence, privacy: .public) vs \(parsed.parseConfidence, privacy: .public)")
+                    parsed = mlParsed
                 }
             }
 
