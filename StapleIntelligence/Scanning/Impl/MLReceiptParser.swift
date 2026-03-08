@@ -7,6 +7,7 @@ import CoreML
 import UIKit
 import Foundation
 import CoreGraphics
+import OSLog
 
 // MARK: - MLReceiptParser
 
