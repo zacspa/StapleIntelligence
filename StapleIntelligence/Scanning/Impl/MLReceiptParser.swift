@@ -488,11 +488,12 @@ private struct ByteLevelBPETokenizer {
         var tokenIds = [Int]()
         var wordIds  = [Int]()
 
-        for (wordIdx, word) in words.enumerated() {
+        // RoBERTa ByteLevel pre-tokenizer uses add_prefix_space=True, meaning
+        // every word (including the first) gets a 'Ġ' prefix in the byte encoding.
+        let spaceChar = byteEncoder[32] ?? "Ġ"
+        for (_, word) in words.enumerated() {
             var chars = word.utf8.compactMap { byteEncoder[$0] }
-            if wordIdx > 0, let spaceChar = byteEncoder[32] {
-                chars.insert(spaceChar, at: 0)
-            }
+            chars.insert(spaceChar, at: 0)
             let merged = bpe(chars)
             let ids    = merged.map { vocab[$0] ?? unkId }
             tokenIds.append(contentsOf: ids)
