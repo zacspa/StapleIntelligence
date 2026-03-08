@@ -51,7 +51,10 @@ struct MLReceiptParser: @unchecked Sendable {
             throw MLParserError.missingModel
         }
         let config = MLModelConfiguration()
-        config.computeUnits = .all
+        // ANE does not support int32 vector inputs (input_ids, attention_mask, bbox).
+        // cpuAndGPU routes integer-input ops to GPU/CPU and avoids the
+        // "Cannot retrieve vector from IRValue format int32" ANE error.
+        config.computeUnits = .cpuAndGPU
         model = try MLModel(contentsOf: modelURL, configuration: config)
 
         guard let tokURL = Bundle.main.url(forResource: "receipt_tokenizer", withExtension: "json") else {
