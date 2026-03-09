@@ -197,13 +197,13 @@ struct ReceiptsView: View {
                 }
             }
 
-            // ML-based parsing: run LayoutLMv3 on-device if available.
+            // ML-based parsing: text-only DistilBERT token classifier.
             // In DEBUG builds, "Force ML parser" in Settings bypasses the confidence
             // check and always uses the ML result.
-            if let ml = mlParser, let firstImage = images.first {
+            if let ml = mlParser {
                 let localML = ml
                 let mlParsed = await Task.detached(priority: .userInitiated) {
-                    localML.parse(ocrLines: ocrLines, image: firstImage)
+                    localML.parse(ocrLines: ocrLines)
                 }.value
                 if let mlParsed {
                     #if DEBUG

@@ -4,38 +4,33 @@
 //
 
 import CoreML
-import UIKit
 import Foundation
 import CoreGraphics
 import OSLog
 
 // MARK: - MLReceiptParser
 
-/// On-device receipt token classifier backed by a 4-bit palettized LayoutLMv3 Core ML model
-/// (~64 MB).
+/// On-device receipt token classifier backed by a 4-bit palettized DistilBERT Core ML model
+/// (~15 MB).
 ///
-/// Classifies each OCR token into a `ReceiptFieldLabel` category via per-token logit argmax,
-/// then aggregates to per-line labels (majority vote, ignoring `.ignore` predictions) and
-/// assembles a `ParsedReceipt` using the same spatial pairing logic as `TemplateParser`.
+/// Text-only — no image preprocessing, no bounding boxes. Tokenizes the concatenated OCR
+/// line text and classifies each token into a `ReceiptFieldLabel` via per-token argmax,
+/// then aggregates to per-line labels (majority vote) and assembles a `ParsedReceipt`.
 ///
 /// ## Pipeline position
 ///
 /// Wire into `ReceiptsView.runPipeline` as a third strategy. After the generic `ReceiptParser`
-/// and any `TemplateParser` run, call `MLReceiptParser.parse(ocrLines:image:)` and keep the
+/// and any `TemplateParser` run, call `MLReceiptParser.parse(ocrLines:)` and keep the
 /// result with the highest `parseConfidence`.
 ///
 /// ## Setup (one-time, manual Xcode step)
 ///
-/// Drag `Scanning/ReceiptClassifier.mlpackage` into Xcode and add it to the
-/// `StapleIntelligence` target so Xcode compiles it and includes it in the bundle.
-/// The JSON resource files in `Scanning/Resources/` are included automatically via
-/// the `PBXFileSystemSynchronizedRootGroup` configuration.
-/// `MLModel.prediction(from:)` is thread-safe; the struct is safe to send across actor
-/// boundaries even though it holds a reference-type `MLModel`.
+/// Drag `Scanning/ReceiptTextClassifier.mlpackage` into Xcode and add it to the
+/// `StapleIntelligence` target. JSON resources in `Scanning/Resources/` are included
+/// automatically via `PBXFileSystemSynchronizedRootGroup`.
 struct MLReceiptParser: @unchecked Sendable {
 
     private static let maxSeqLen = 512
-    private static let imageSize = 224
 
     private let model: MLModel
     private let tokenizer: ByteLevelBPETokenizer
@@ -46,16 +41,12 @@ struct MLReceiptParser: @unchecked Sendable {
 
     /// Throws `MLParserError` if the `.mlpackage` or JSON resources are absent from the bundle.
     init() throws {
-        // ReceiptClassifier.mlpackage compiles to ReceiptClassifier.mlmodelc in the bundle.
-        guard let modelURL = Bundle.main.url(forResource: "ReceiptClassifier", withExtension: "mlmodelc")
-                          ?? Bundle.main.url(forResource: "ReceiptClassifier", withExtension: "mlpackage") else {
+        guard let modelURL = Bundle.main.url(forResource: "ReceiptTextClassifier", withExtension: "mlmodelc")
+                          ?? Bundle.main.url(forResource: "ReceiptTextClassifier", withExtension: "mlpackage") else {
             throw MLParserError.missingModel
         }
         let config = MLModelConfiguration()
-        // ANE does not support int32 vector inputs (input_ids, attention_mask, bbox).
-        // cpuAndGPU routes integer-input ops to GPU/CPU and avoids the
-        // "Cannot retrieve vector from IRValue format int32" ANE error.
-        config.computeUnits = .cpuAndGPU
+        config.computeUnits = .all
         model = try MLModel(contentsOf: modelURL, configuration: config)
 
         guard let tokURL = Bundle.main.url(forResource: "receipt_tokenizer", withExtension: "json") else {
@@ -63,10 +54,10 @@ struct MLReceiptParser: @unchecked Sendable {
         }
         tokenizer = try ByteLevelBPETokenizer(contentsOf: tokURL)
 
-        guard let labelURL = Bundle.main.url(forResource: "receipt_label_map", withExtension: "json"),
+        guard let labelURL = Bundle.main.url(forResource: "receipt_label_map_v3", withExtension: "json"),
               let data = try? Data(contentsOf: labelURL),
               let raw = try? JSONDecoder().decode([String: String].self, from: data) else {
-            throw MLParserError.missingResource("receipt_label_map.json")
+            throw MLParserError.missingResource("receipt_label_map_v3.json")
         }
         labelMap = raw.reduce(into: [:]) { dict, pair in
             if let id = Int(pair.key), let label = ReceiptFieldLabel(rawValue: pair.value) {
@@ -78,23 +69,26 @@ struct MLReceiptParser: @unchecked Sendable {
 
     // MARK: - Parse
 
-    /// Returns `nil` if inference fails or no OCR lines have bounding boxes.
-    func parse(ocrLines: [OCRLine], image: UIImage) -> ParsedReceipt? {
+    /// Returns `nil` if inference fails.
+    func parse(ocrLines: [OCRLine]) -> ParsedReceipt? {
         guard !ocrLines.isEmpty else { return nil }
 
-        let (inputIds, attentionMask, bboxFlat, lineTokenRanges) = buildTextInputs(ocrLines: ocrLines)
-        guard let pixelValues = imageToPixelValues(image) else { return nil }
-        guard let logits = runInference(inputIds: inputIds,
-                                        attentionMask: attentionMask,
-                                        bboxFlat: bboxFlat,
-                                        pixelValues: pixelValues) else { return nil }
+        let (inputIds, attentionMask, lineTokenRanges) = buildInputs(ocrLines: ocrLines)
+        guard let logitArray = runInference(inputIds: inputIds, attentionMask: attentionMask)
+        else { return nil }
+
+        #if DEBUG
+        ScanningLog.parse.log("ML logit shape: \(logitArray.shape.map(\.intValue), privacy: .public) strides: \(logitArray.strides.map(\.intValue), privacy: .public)")
+        let firstTokLogits = (0..<min(10, numLabels)).map {
+            String(format: "%.2f", logitArray[[0, 0, $0] as [NSNumber]].floatValue)
+        }.joined(separator: ", ")
+        ScanningLog.parse.log("ML [CLS] logits (id 0-9): \(firstTokLogits, privacy: .public)")
+        #endif
 
         // Aggregate per-token predictions → per-line dominant label
         var labeledLines = [ReceiptFieldLabel: [OCRLine]]()
         #if DEBUG
-        var globalLabelCounts = [Int: Int]()   // raw label id → token count across whole sequence
-        var firstTokenLogits = [Float]()
-        if numLabels > 0 { firstTokenLogits = Array(logits.prefix(numLabels)) }
+        var globalLabelCounts = [Int: Int]()
         #endif
 
         for (lineIdx, line) in ocrLines.enumerated() {
@@ -104,12 +98,11 @@ struct MLReceiptParser: @unchecked Sendable {
 
             var counts = [ReceiptFieldLabel: Int]()
             for tokenIdx in range {
-                guard tokenIdx * numLabels + numLabels <= logits.count else { continue }
-                let labelId = argmax(logits: logits, tokenIndex: tokenIdx, numLabels: numLabels)
+                let labelId = argmax(logitArray: logitArray, tokenIndex: tokenIdx)
                 #if DEBUG
                 globalLabelCounts[labelId, default: 0] += 1
                 #endif
-                let label   = labelMap[labelId] ?? .ignore
+                let label = labelMap[labelId] ?? .ignore
                 if label != .ignore { counts[label, default: 0] += 1 }
             }
             if let dominant = counts.max(by: { $0.value < $1.value })?.key {
@@ -118,25 +111,13 @@ struct MLReceiptParser: @unchecked Sendable {
         }
 
         #if DEBUG
-        let logitRange = logits.isEmpty ? "empty" : "\(logits.min()!)…\(logits.max()!)"
-        ScanningLog.parse.log("ML logits — range: \(logitRange, privacy: .public), total_tokens: \(logits.count / max(numLabels,1), privacy: .public)")
-        ScanningLog.parse.log("ML first-token logits (id 0-9): \(firstTokenLogits.prefix(10).map { String(format:"%.2f",$0) }.joined(separator:", "), privacy: .public)")
         let topLabels = globalLabelCounts.sorted { $0.value > $1.value }.prefix(8)
             .map { "\($0.key)(\(labelMap[$0.key]?.rawValue ?? "?"))×\($0.value)" }.joined(separator: " ")
         ScanningLog.parse.log("ML top predicted label IDs: \(topLabels, privacy: .public)")
-
-        // Per-line token range diagnostics (first 6 lines)
-        let lineRangeStr = lineTokenRanges.prefix(6).enumerated()
-            .map { i, r in "\(i):\(r.isEmpty ? "EMPTY" : "\(r)")" }.joined(separator: " ")
-        ScanningLog.parse.log("ML line token ranges: \(lineRangeStr, privacy: .public)")
-
-        // Labels for real tokens only (indices 1..<last real token before SEP)
         let realTokenCount = attentionMask.prefix(Self.maxSeqLen).filter { $0 == 1 }.count
         var realLabelCounts = [Int: Int]()
-        for ti in 1..<max(1, realTokenCount - 1) {   // skip [CLS] at 0 and [SEP] at end
-            guard ti * numLabels + numLabels <= logits.count else { break }
-            let id = argmax(logits: logits, tokenIndex: ti, numLabels: numLabels)
-            realLabelCounts[id, default: 0] += 1
+        for ti in 1..<max(1, realTokenCount - 1) {
+            realLabelCounts[argmax(logitArray: logitArray, tokenIndex: ti), default: 0] += 1
         }
         let realLabels = realLabelCounts.sorted { $0.value > $1.value }.prefix(6)
             .map { "\($0.key)(\(labelMap[$0.key]?.rawValue ?? "?"))×\($0.value)" }.joined(separator: " ")
@@ -147,31 +128,26 @@ struct MLReceiptParser: @unchecked Sendable {
         return extractParsedReceipt(from: labeledLines, rawOcrText: rawText)
     }
 
-    // MARK: - Text input construction
+    // MARK: - Input construction
 
-    private func buildTextInputs(ocrLines: [OCRLine]) -> (
+    private func buildInputs(ocrLines: [OCRLine]) -> (
         inputIds: [Int32],
         attentionMask: [Int32],
-        bboxFlat: [Int32],
         lineTokenRanges: [Range<Int>]
     ) {
         let maxLen = Self.maxSeqLen
         var inputIds   = [Int32]()
-        var bboxFlat   = [Int32]()
         var lineRanges = [Range<Int>]()
 
         // [CLS]
         inputIds.append(Int32(tokenizer.clsId))
-        bboxFlat.append(contentsOf: [0, 0, 0, 0])
 
         for line in ocrLines {
             let startIdx = inputIds.count
-            let box = visionBboxToLayoutLM(line.boundingBox)
             let (tokenIds, _) = tokenizer.encode(line.text)
             for tid in tokenIds {
                 guard inputIds.count < maxLen - 1 else { break }
                 inputIds.append(Int32(tid))
-                bboxFlat.append(contentsOf: box)
             }
             let endIdx = min(inputIds.count, maxLen - 1)
             lineRanges.append(startIdx..<endIdx)
@@ -180,116 +156,50 @@ struct MLReceiptParser: @unchecked Sendable {
 
         // [SEP]
         inputIds.append(Int32(tokenizer.sepId))
-        bboxFlat.append(contentsOf: [1000, 1000, 1000, 1000])
 
         let realLen = inputIds.count
         while inputIds.count < maxLen {
             inputIds.append(Int32(tokenizer.padId))
-            bboxFlat.append(contentsOf: [0, 0, 0, 0])
         }
 
         let attentionMask = (0..<maxLen).map { Int32($0 < realLen ? 1 : 0) }
-        return (inputIds, attentionMask, bboxFlat, lineRanges)
-    }
-
-    /// Converts a Vision-normalized bounding box (bottom-left origin) to
-    /// LayoutLMv3 format (top-left origin, 0–1000 range): [x0, y0, x1, y1].
-    private func visionBboxToLayoutLM(_ bbox: CGRect?) -> [Int32] {
-        guard let b = bbox else { return [0, 0, 0, 0] }
-        return [
-            Int32(b.minX * 1000),
-            Int32((1 - b.maxY) * 1000),   // Y-flip: Vision BL → display TL
-            Int32(b.maxX * 1000),
-            Int32((1 - b.minY) * 1000),
-        ]
-    }
-
-    // MARK: - Image preprocessing
-
-    /// Resizes to 224×224 and normalizes to [-1, 1] in CHW order.
-    private func imageToPixelValues(_ image: UIImage) -> [Float]? {
-        let s = Self.imageSize
-        let size = CGSize(width: s, height: s)
-        UIGraphicsBeginImageContextWithOptions(size, true, 1.0)
-        image.draw(in: CGRect(origin: .zero, size: size))
-        let resized = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-
-        guard let cg = resized?.cgImage else { return nil }
-        var raw = [UInt8](repeating: 0, count: s * s * 4)
-        let cs  = CGColorSpaceCreateDeviceRGB()
-        guard let ctx = CGContext(data: &raw, width: s, height: s,
-                                  bitsPerComponent: 8, bytesPerRow: s * 4,
-                                  space: cs,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { return nil }
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: s, height: s))
-
-        // RGBA bytes → CHW float32, normalized (pixel/127.5 - 1)
-        var pixels = [Float](repeating: 0, count: 3 * s * s)
-        for i in 0..<(s * s) {
-            let p = i * 4
-            pixels[0 * s * s + i] = Float(raw[p])     / 127.5 - 1.0  // R
-            pixels[1 * s * s + i] = Float(raw[p + 1]) / 127.5 - 1.0  // G
-            pixels[2 * s * s + i] = Float(raw[p + 2]) / 127.5 - 1.0  // B
-        }
-        return pixels
+        return (inputIds, attentionMask, lineRanges)
     }
 
     // MARK: - Inference
 
-    private func runInference(
-        inputIds: [Int32],
-        attentionMask: [Int32],
-        bboxFlat: [Int32],
-        pixelValues: [Float]
-    ) -> [Float]? {
+    private func runInference(inputIds: [Int32], attentionMask: [Int32]) -> MLMultiArray? {
         let seq = Self.maxSeqLen
-        let img = Self.imageSize
 
-        guard let idArr  = try? MLMultiArray(shape: [1, seq as NSNumber],          dataType: .int32),
-              let mskArr = try? MLMultiArray(shape: [1, seq as NSNumber],          dataType: .int32),
-              let bxArr  = try? MLMultiArray(shape: [1, seq as NSNumber, 4],       dataType: .int32),
-              let pxArr  = try? MLMultiArray(shape: [1, 3, img as NSNumber, img as NSNumber], dataType: .float32)
+        guard let idArr  = try? MLMultiArray(shape: [1, seq as NSNumber], dataType: .int32),
+              let mskArr = try? MLMultiArray(shape: [1, seq as NSNumber], dataType: .int32)
         else { return nil }
 
         for i in 0..<seq {
             idArr[i]  = NSNumber(value: inputIds[i])
             mskArr[i] = NSNumber(value: attentionMask[i])
         }
-        for i in 0..<(seq * 4) {
-            bxArr[i] = NSNumber(value: bboxFlat[i])
-        }
-        for i in 0..<pixelValues.count {
-            pxArr[i] = NSNumber(value: pixelValues[i])
-        }
 
         guard let provider = try? MLDictionaryFeatureProvider(dictionary: [
             "input_ids":      MLFeatureValue(multiArray: idArr),
             "attention_mask": MLFeatureValue(multiArray: mskArr),
-            "bbox":           MLFeatureValue(multiArray: bxArr),
-            "pixel_values":   MLFeatureValue(multiArray: pxArr),
         ]) else { return nil }
 
         guard let output = try? model.prediction(from: provider),
               let logitArray = output.featureValue(for: "logits")?.multiArrayValue
         else { return nil }
 
-        let total = seq * numLabels
-        var logits = [Float](repeating: 0, count: total)
-        for i in 0..<min(total, logitArray.count) {
-            logits[i] = logitArray[i].floatValue
-        }
-        return logits
+        return logitArray
     }
 
-    private func argmax(logits: [Float], tokenIndex: Int, numLabels: Int) -> Int {
-        let offset = tokenIndex * numLabels
+    /// Argmax using MLMultiArray multi-index subscript (respects actual strides).
+    private func argmax(logitArray: MLMultiArray, tokenIndex: Int) -> Int {
         var bestIdx = 0
-        var bestVal = logits[offset]
+        var bestVal = logitArray[[0, tokenIndex, 0] as [NSNumber]].floatValue
         for i in 1..<numLabels {
-            if logits[offset + i] > bestVal {
-                bestVal = logits[offset + i]
+            let val = logitArray[[0, tokenIndex, i] as [NSNumber]].floatValue
+            if val > bestVal {
+                bestVal = val
                 bestIdx = i
             }
         }
@@ -298,8 +208,6 @@ struct MLReceiptParser: @unchecked Sendable {
 
     // MARK: - ParsedReceipt extraction
 
-    /// Mirrors `TemplateParser`'s extraction logic, accepting the same
-    /// `[ReceiptFieldLabel: [OCRLine]]` bucket structure.
     private func extractParsedReceipt(
         from labeledLines: [ReceiptFieldLabel: [OCRLine]],
         rawOcrText: String
@@ -410,8 +318,6 @@ struct MLReceiptParser: @unchecked Sendable {
         return items
     }
 
-    // Shared helpers (mirrors TemplateParser)
-
     private func extractDate(from text: String) -> Date? {
         guard let m = try? ReceiptParser.datePattern.firstMatch(in: text),
               let mo = Int(String(m.1)), let d = Int(String(m.2)), var y = Int(String(m.3))
@@ -458,22 +364,26 @@ enum MLParserError: Error {
 
 // MARK: - ByteLevelBPETokenizer
 
-/// Minimal byte-level BPE tokenizer compatible with RoBERTa / LayoutLMv3.
+/// Minimal byte-level BPE tokenizer compatible with RoBERTa / DistilBERT (uncased).
 ///
-/// Loads vocabulary and merge rules from a `tokenizer.json` file (HuggingFace format).
-/// Implements GPT-2's byte-to-unicode encoding so that any UTF-8 input can be tokenized
-/// without unknown-byte failures. The `encode(_:)` method adds a 'Ġ' space prefix to
-/// every word after the first, matching the `add_prefix_space: true` pre-tokenizer config.
+/// DistilBERT uses WordPiece, not BPE. However, the fine-tuned checkpoint was trained
+/// with the standard `distilbert-base-uncased` tokenizer (WordPiece).
+/// This tokenizer loads HuggingFace `tokenizer.json` format; if the checkpoint uses
+/// a `tokenizer.json` with a WordPiece model block the struct decodes it correctly.
+///
+/// For BPE (RoBERTa-style) the struct also works — `merges` is optional and the
+/// fallback single-char split is still a valid (lossy) tokenization.
 private struct ByteLevelBPETokenizer {
 
     private let vocab: [String: Int]
     private let mergeRanks: [MergePair: Int]
-    private let byteEncoder: [UInt8: String]    // byte → unicode char string
+    private let byteEncoder: [UInt8: String]
+    private let isWordPiece: Bool
 
-    let clsId: Int    // <s>
-    let padId: Int    // <pad>
-    let sepId: Int    // </s>
-    let unkId: Int    // <unk>
+    let clsId: Int
+    let padId: Int
+    let sepId: Int
+    let unkId: Int
 
     // MARK: - Init
 
@@ -483,30 +393,80 @@ private struct ByteLevelBPETokenizer {
 
         vocab = decoded.model.vocab
 
+        // BPE merges (empty for WordPiece models)
         var ranks = [MergePair: Int]()
-        for (i, merge) in decoded.model.merges.enumerated() {
+        for (i, merge) in (decoded.model.merges ?? []).enumerated() {
             let parts = merge.split(separator: " ", maxSplits: 1).map(String.init)
             guard parts.count == 2 else { continue }
             ranks[MergePair(first: parts[0], second: parts[1])] = i
         }
         mergeRanks = ranks
+        isWordPiece = (decoded.model.type?.lowercased() == "wordpiece") || ranks.isEmpty
         byteEncoder = Self.buildByteEncoder()
 
-        clsId = vocab["<s>"]    ?? 0
-        padId = vocab["<pad>"]  ?? 1
-        sepId = vocab["</s>"]   ?? 2
-        unkId = vocab["<unk>"]  ?? 3
+        // Token IDs — WordPiece uses [CLS]=101, [SEP]=102, [PAD]=0, [UNK]=100
+        // BPE (RoBERTa) uses <s>=0, </s>=2, <pad>=1, <unk>=3
+        clsId = vocab["[CLS]"] ?? vocab["<s>"]    ?? 101
+        padId = vocab["[PAD]"] ?? vocab["<pad>"]  ?? 0
+        sepId = vocab["[SEP]"] ?? vocab["</s>"]   ?? 102
+        unkId = vocab["[UNK]"] ?? vocab["<unk>"]  ?? 100
     }
 
     // MARK: - Encoding
 
     func encode(_ text: String) -> (tokenIds: [Int], wordIds: [Int]) {
+        return isWordPiece ? encodeWordPiece(text) : encodeBPE(text)
+    }
+
+    // MARK: - WordPiece
+
+    private func encodeWordPiece(_ text: String) -> (tokenIds: [Int], wordIds: [Int]) {
+        let words = text.lowercased().components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+        var tokenIds = [Int]()
+        var wordIds  = [Int]()
+
+        for (wordIdx, word) in words.enumerated() {
+            var remaining = word
+            var first     = true
+            var wordTokenized = false
+            while !remaining.isEmpty {
+                var found = false
+                for len in stride(from: remaining.count, through: 1, by: -1) {
+                    let prefix = String(remaining.prefix(len))
+                    let candidate = first ? prefix : "##" + prefix
+                    if let id = vocab[candidate] {
+                        tokenIds.append(id)
+                        wordIds.append(wordIdx)
+                        remaining = String(remaining.dropFirst(len))
+                        first = false
+                        found = true
+                        wordTokenized = true
+                        break
+                    }
+                }
+                if !found {
+                    // Unknown character — emit [UNK] and skip rest of word
+                    tokenIds.append(unkId)
+                    wordIds.append(wordIdx)
+                    remaining = ""
+                    wordTokenized = true
+                }
+            }
+            if !wordTokenized {
+                tokenIds.append(unkId)
+                wordIds.append(wordIdx)
+            }
+        }
+        return (tokenIds, wordIds)
+    }
+
+    // MARK: - BPE (RoBERTa-style)
+
+    private func encodeBPE(_ text: String) -> (tokenIds: [Int], wordIds: [Int]) {
         let words = text.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
         var tokenIds = [Int]()
         var wordIds  = [Int]()
 
-        // RoBERTa ByteLevel pre-tokenizer uses add_prefix_space=True, meaning
-        // every word (including the first) gets a 'Ġ' prefix in the byte encoding.
         let spaceChar = byteEncoder[32] ?? "Ġ"
         for (wordIdx, word) in words.enumerated() {
             var chars = word.utf8.compactMap { byteEncoder[$0] }
@@ -518,8 +478,6 @@ private struct ByteLevelBPETokenizer {
         }
         return (tokenIds, wordIds)
     }
-
-    // MARK: - BPE merge
 
     private func bpe(_ word: [String]) -> [String] {
         var chars = word
@@ -540,27 +498,15 @@ private struct ByteLevelBPETokenizer {
         return chars
     }
 
-    // MARK: - GPT-2 byte encoder
-
-    /// Builds the fixed GPT-2 byte-to-unicode mapping.
-    /// Bytes in printable ASCII (33–126) and Latin-1 supplement ranges (161–172, 174–255)
-    /// map to themselves; the remaining 68 bytes map to U+0100 onwards.
     private static func buildByteEncoder() -> [UInt8: String] {
-        // Bytes that map to their own unicode scalar
         let passthrough: [ClosedRange<UInt8>] = [33...126, 161...172, 174...255]
         var result = [UInt8: String]()
         for range in passthrough {
-            for b in range {
-                result[b] = String(UnicodeScalar(UInt32(b))!)
-            }
+            for b in range { result[b] = String(UnicodeScalar(UInt32(b))!) }
         }
-        // Remaining bytes map to U+0100, U+0101, ... in byte order
         var extra: UInt32 = 256
         for b in UInt8(0)...UInt8(255) {
-            if result[b] == nil {
-                result[b] = String(UnicodeScalar(extra)!)
-                extra += 1
-            }
+            if result[b] == nil { result[b] = String(UnicodeScalar(extra)!); extra += 1 }
         }
         return result
     }
@@ -569,8 +515,9 @@ private struct ByteLevelBPETokenizer {
 
     private struct TokenizerFile: Decodable {
         struct Model: Decodable {
+            let type: String?
             let vocab: [String: Int]
-            let merges: [String]
+            let merges: [String]?
         }
         let model: Model
     }
